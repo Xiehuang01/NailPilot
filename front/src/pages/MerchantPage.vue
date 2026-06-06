@@ -20,6 +20,18 @@ import {useMerchantStore} from '@/stores/merchant';
 const merchantStore = useMerchantStore();
 const {agentReports, dashboardData, isLoadingDashboard} = storeToRefs(merchantStore);
 
+const hoveredCardIndex = ref<number | null>(null);
+
+const isShrunk = (index: number) => hoveredCardIndex.value !== null && hoveredCardIndex.value !== index;
+
+const cardGridStyle = computed(() => {
+  const cols = metricCards.value.map((_, i) =>
+    hoveredCardIndex.value === null ? '1fr' : i === hoveredCardIndex.value ? '4.5fr' : '1fr',
+  );
+  return { gridTemplateColumns: cols.join(' ') };
+});
+
+
 const reportLoading = ref<Record<'trend' | 'strategy' | 'marketing', boolean>>({
   trend: false,
   strategy: false,
@@ -40,10 +52,10 @@ const metricCards = computed(() => {
   }
 
   return [
-    {title: '总浏览量', value: dashboardData.value.totalViews, icon: Users, color: 'bg-blue-50 text-blue-500'},
-    {title: 'AI 试戴量', value: dashboardData.value.tryOnVolume, icon: Sparkles, color: 'bg-pink-50 text-pink-500'},
-    {title: '收藏量', value: dashboardData.value.favoriteVolume, icon: Target, color: 'bg-red-50 text-red-500'},
-    {title: '预约量', value: dashboardData.value.bookingVolume, icon: Users, color: 'bg-green-50 text-green-500'},
+    {title: '总浏览量', value: dashboardData.value.totalViews, unit: '次', icon: Users, color: 'bg-blue-50 text-blue-500'},
+    {title: 'AI 试戴量', value: dashboardData.value.tryOnVolume, unit: '次', icon: Sparkles, color: 'bg-pink-50 text-pink-500'},
+    {title: '收藏量', value: dashboardData.value.favoriteVolume, unit: '次', icon: Target, color: 'bg-red-50 text-red-500'},
+    {title: '预约量', value: dashboardData.value.bookingVolume, unit: '单', icon: Users, color: 'bg-green-50 text-green-500'},
   ];
 });
 
@@ -89,16 +101,28 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
     <div class="grid lg:grid-cols-[1fr_380px] gap-6 flex-1 items-start min-h-0">
       <el-scrollbar class="h-full">
         <div class="space-y-6 flex flex-col h-full pr-2 pb-4">
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
-            <div v-for="metric in metricCards" :key="metric.title" class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative">
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full transition-[grid-template-columns] duration-500 ease-in-out" :style="cardGridStyle" @mouseleave="hoveredCardIndex = null">
+            <div v-for="(metric, index) in metricCards" :key="metric.title" class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm overflow-hidden relative cursor-pointer h-[6.5rem]" @mouseenter="hoveredCardIndex = index">
               <div class="flex items-center gap-2 mb-2 relative z-10">
-                <div :class="cn('w-8 h-8 rounded-lg flex items-center justify-center', metric.color)">
+                <div :class="cn('w-8 h-8 rounded-lg flex items-center justify-center shrink-0', metric.color)">
                   <component :is="metric.icon" class="w-4 h-4" />
                 </div>
-                <span class="text-xs font-semibold text-gray-500">{{ metric.title }}</span>
+                <span
+                  class="text-xs font-semibold text-gray-500 whitespace-nowrap transition-all duration-500 ease-in-out overflow-hidden"
+                  :class="isShrunk(index) ? 'max-w-0 opacity-0' : 'max-w-32 opacity-100'"
+                >{{ metric.title }}</span>
               </div>
-              <div class="text-2xl font-black text-gray-900 font-mono tracking-tight relative z-10">
-                {{ metric.value.toLocaleString() }}
+              <div class="relative z-10 h-7">
+                <span
+                  class="text-xs font-semibold text-gray-500 absolute inset-0 flex items-center transition-all duration-500 ease-in-out whitespace-nowrap"
+                  :class="isShrunk(index) ? 'opacity-100' : 'opacity-0'"
+                >{{ metric.title }}</span>
+                <div
+                  class="text-2xl font-black text-gray-900 font-mono tracking-tight absolute inset-0 flex items-center transition-all duration-500 ease-in-out whitespace-nowrap"
+                  :class="isShrunk(index) ? 'opacity-0' : 'opacity-100'"
+                >
+                  {{ metric.value.toLocaleString() }}<span class="text-sm font-medium text-gray-400 ml-1">{{ metric.unit }}</span>
+                </div>
               </div>
             </div>
           </div>
