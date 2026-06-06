@@ -31,7 +31,6 @@ const cardGridStyle = computed(() => {
   return { gridTemplateColumns: cols.join(' ') };
 });
 
-
 const reportLoading = ref<Record<'trend' | 'strategy' | 'marketing', boolean>>({
   trend: false,
   strategy: false,
@@ -127,9 +126,44 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
             </div>
           </div>
 
+          <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+            <h3 class="font-semibold text-gray-900 mb-4">运营卡片</h3>
+            <div class="overflow-x-auto pb-4">
+              <table class="w-full text-sm text-left">
+                <thead class="text-xs text-gray-500 uppercase bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 rounded-l-lg">款式名</th>
+                    <th class="px-4 py-3 text-right">浏览量</th>
+                    <th class="px-4 py-3 text-right">试戴量</th>
+                    <th class="px-4 py-3 text-right">转化率</th>
+                    <th class="px-4 py-3 rounded-r-lg w-[40%]">AI 运营建议</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="style in dashboardData.styleStats"
+                    :key="style.id"
+                    class="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors"
+                  >
+                    <td class="px-4 py-4 font-medium text-gray-900">{{ style.name }}</td>
+                    <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.views }}</td>
+                    <td class="px-4 py-4 font-mono text-[#B89600] text-right font-medium">{{ style.tryOns }}</td>
+                    <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.conversion }}</td>
+                    <td class="px-4 py-4">
+                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#FFFDF7] text-gray-600 text-xs border border-[#FFD100]/20">
+                        <Sparkles class="w-3 h-3 text-[#B89600] shrink-0" />
+                        <span class="line-clamp-2 leading-relaxed">{{ style.advice }}</span>
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="grid md:grid-cols-2 gap-4">
             <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm col-span-2">
-              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2"><TrendingUp class="w-4 h-4" /> 最近7天试戴趋势</h3>
+              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2"><TrendingUp class="w-4 h-4" /> 趋势图卡片</h3>
               <AreaTrendChart :data="dashboardData.trendData" />
             </div>
 
@@ -161,41 +195,6 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   </div>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-            <h3 class="font-semibold text-gray-900 mb-4">款式运营看板</h3>
-            <div class="overflow-x-auto pb-4">
-              <table class="w-full text-sm text-left">
-                <thead class="text-xs text-gray-500 uppercase bg-gray-50">
-                  <tr>
-                    <th class="px-4 py-3 rounded-l-lg">款式名</th>
-                    <th class="px-4 py-3 text-right">浏览量</th>
-                    <th class="px-4 py-3 text-right">试戴量</th>
-                    <th class="px-4 py-3 text-right">转化率</th>
-                    <th class="px-4 py-3 rounded-r-lg w-[40%]">AI 运营建议</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="style in dashboardData.styleStats"
-                    :key="style.id"
-                    class="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors"
-                  >
-                    <td class="px-4 py-4 font-medium text-gray-900">{{ style.name }}</td>
-                    <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.views }}</td>
-                    <td class="px-4 py-4 font-mono text-[#B89600] text-right font-medium">{{ style.tryOns }}</td>
-                    <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.conversion }}</td>
-                    <td class="px-4 py-4">
-                      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#FFFDF7] text-gray-600 text-xs border border-[#FFD100]/20">
-                        <Sparkles class="w-3 h-3 text-[#B89600] shrink-0" />
-                        <span class="line-clamp-2 leading-relaxed">{{ style.advice }}</span>
-                      </span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
           </div>
         </div>
