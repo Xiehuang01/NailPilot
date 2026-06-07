@@ -67,12 +67,23 @@ const fallbackStyleCatalog = [
 const normalizeText = (text = '') => text.toLowerCase();
 const splitQuery = (query: string) => query.split(/\s+|、|，|,|。/).filter(Boolean);
 
-const parseTags = (tags: string) => {
+const parseTags = (tags: unknown) => {
+  if (Array.isArray(tags)) {
+    return tags.map(String).filter(Boolean);
+  }
+
+  if (typeof tags !== 'string' || !tags.trim()) {
+    return [];
+  }
+
   try {
     const parsed = JSON.parse(tags);
     return Array.isArray(parsed) ? parsed.map(String) : [];
   } catch {
-    return [];
+    return tags
+      .split(/[,，、]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 };
 

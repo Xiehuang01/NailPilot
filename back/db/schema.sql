@@ -39,6 +39,41 @@ CREATE TABLE IF NOT EXISTS bookings (
   FOREIGN KEY (style_id) REFERENCES styles(id)
 );
 
+CREATE TABLE IF NOT EXISTS try_on_events (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  shop_id VARCHAR(64) NOT NULL DEFAULT 'demo_shop_001',
+  style_id INT NOT NULL,
+  provider VARCHAR(64) NOT NULL,
+  success TINYINT(1) NOT NULL DEFAULT 1,
+  fit_score INT NULL,
+  brighten_score INT NULL,
+  style_match_score INT NULL,
+  total_score INT NULL,
+  skin_tone VARCHAR(32) NULL,
+  hand_shape VARCHAR(32) NULL,
+  nail_bed VARCHAR(32) NULL,
+  recommended_style_ids JSON NULL,
+  explanation JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (style_id) REFERENCES styles(id),
+  INDEX idx_try_on_events_style_created_at (style_id, created_at),
+  INDEX idx_try_on_events_created_at (created_at),
+  INDEX idx_try_on_events_skin_tone (skin_tone)
+);
+
+CREATE TABLE IF NOT EXISTS style_selection_events (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  shop_id VARCHAR(64) NOT NULL DEFAULT 'demo_shop_001',
+  style_id INT NOT NULL,
+  source VARCHAR(32) NOT NULL DEFAULT 'catalog',
+  session_id VARCHAR(128) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (style_id) REFERENCES styles(id),
+  INDEX idx_style_selection_events_style_created_at (style_id, created_at),
+  INDEX idx_style_selection_events_created_at (created_at),
+  INDEX idx_style_selection_events_source (source)
+);
+
 CREATE TABLE IF NOT EXISTS merchant_dashboard_summary (
   id INT PRIMARY KEY AUTO_INCREMENT,
   shop_name VARCHAR(128) NOT NULL,

@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { env } from '../config/env.js';
 import { createAppError } from '../types/http.js';
 
@@ -15,13 +16,17 @@ type ImageDimensions = {
   width: number;
 };
 
-const extractImageUrl = (payload: JsonRecord) => {
-  const content = payload.output?.choices?.[0]?.message?.content ?? payload.output?.choices?.[0]?.message?.contents;
-  const items = Array.isArray(content) ? content : [];
-  const imageItem = items.find((item: JsonRecord) => item.image || item.image_url || item.url);
-
-  return imageItem?.image ?? imageItem?.image_url ?? imageItem?.url ?? payload.output?.url ?? payload.output?.image_url;
+type CatsTaskResponse = {
+  error_message?: string;
+  id?: string;
+  result_images?: string[];
+  status?: 'completed' | 'failed' | 'pending' | 'processing' | 'queued' | string;
 };
+
+const OUTPUT_MAX_EDGE = 1024;
+const OUTPUT_WEBP_QUALITY = 82;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const parsePngDimensions = (bytes: Uint8Array): ImageDimensions | null => {
   if (bytes.length < 24 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) {
@@ -101,19 +106,19 @@ const parseWebpDimensions = (bytes: Uint8Array): ImageDimensions | null => {
 const parseImageDimensions = (bytes: Uint8Array): ImageDimensions | null =>
   parsePngDimensions(bytes) ?? parseJpegDimensions(bytes) ?? parseWebpDimensions(bytes);
 
-const getImageBytes = async (image: string): Promise<Uint8Array | null> => {
+const getImageBytes = async (image: string): Promise<Uint8Array> => {
   const dataUrlMatch = image.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/);
   if (dataUrlMatch?.[1]) {
     return new Uint8Array(Buffer.from(dataUrlMatch[1], 'base64'));
   }
 
   if (!/^https?:\/\//.test(image)) {
-    return null;
+    throw createAppError('Only HTTP image URLs and data URLs are supported for Cats image generation', 400);
   }
 
   const response = await fetch(image);
   if (!response.ok) {
-    return null;
+    throw createAppError(`Image fetch failed: ${response.status}`, response.status);
   }
 
   return new Uint8Array(await response.arrayBuffer());
@@ -122,30 +127,45 @@ const getImageBytes = async (image: string): Promise<Uint8Array | null> => {
 const getImageDimensions = async (image: string): Promise<ImageDimensions | null> => {
   try {
     const bytes = await getImageBytes(image);
-    return bytes ? parseImageDimensions(bytes) : null;
+    return parseImageDimensions(bytes);
   } catch {
     return null;
   }
 };
 
-const roundToMultipleOf16 = (value: number) => Math.max(512, Math.min(2048, Math.round(value / 16) * 16));
+const getImageBase64 = async (image: string) => Buffer.from(await getImageBytes(image)).toString('base64');
 
-const getQwenSizeFromHand = (dimensions: ImageDimensions | null) => {
+const getCatsSizeFromHand = (dimensions: ImageDimensions | null) => {
   if (!dimensions?.width || !dimensions.height) {
-    return undefined;
+    return '1024x1024';
   }
 
   const aspect = dimensions.width / dimensions.height;
-  const targetPixels = 1024 * 1024;
-  const width = roundToMultipleOf16(Math.sqrt(targetPixels * aspect));
-  const height = roundToMultipleOf16(width / aspect);
-  return `${width}*${height}`;
-};
+  if (aspect >= 2.2) {
+    return '3840x1280';
+  }
 
-const getPayloadDimensions = (payload: JsonRecord): ImageDimensions | null => {
-  const width = Number(payload.usage?.width);
-  const height = Number(payload.usage?.height);
-  return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : null;
+  if (aspect >= 1.55) {
+    return '2048x1152';
+  }
+
+  if (aspect >= 1.18) {
+    return '1536x1024';
+  }
+
+  if (aspect <= 0.45) {
+    return '1280x3840';
+  }
+
+  if (aspect <= 0.65) {
+    return '1152x2048';
+  }
+
+  if (aspect <= 0.85) {
+    return '1024x1536';
+  }
+
+  return '1024x1024';
 };
 
 const formatStyleHint = ({ styleName, styleTags = [] }: Pick<GenerateTryOnImageInput, 'styleName' | 'styleTags'>) => {
@@ -153,123 +173,179 @@ const formatStyleHint = ({ styleName, styleTags = [] }: Pick<GenerateTryOnImageI
   return [styleName ? `款式名称：${styleName}` : '', tags ? `款式标签：${tags}` : ''].filter(Boolean).join('\n');
 };
 
-const assertOutputUsesHandCanvas = async ({
-  handDimensions,
-  outputImageUrl,
-  payload,
-  styleDimensions,
+const getCatsHeaders = () => ({
+  Authorization: `Bearer ${env.CATS_API_KEY}`,
+  'Content-Type': 'application/json',
+});
+
+const getFirstResultImage = (task: CatsTaskResponse) => task.result_images?.[0];
+
+const createCatsTask = async ({
+  images,
+  prompt,
+  size,
 }: {
-  handDimensions: ImageDimensions | null;
-  outputImageUrl: string;
-  payload: JsonRecord;
-  styleDimensions: ImageDimensions | null;
+  images: Array<{ base64: string; name: string }>;
+  prompt: string;
+  size: string;
 }) => {
-  const outputDimensions = getPayloadDimensions(payload) ?? (await getImageDimensions(outputImageUrl));
-  if (!handDimensions || !outputDimensions) {
-    return;
-  }
-
-  const outputAspect = outputDimensions.width / outputDimensions.height;
-  const handAspect = handDimensions.width / handDimensions.height;
-  const styleAspect = styleDimensions ? styleDimensions.width / styleDimensions.height : null;
-  const handDelta = Math.abs(outputAspect - handAspect);
-  const styleDelta = styleAspect === null ? Number.POSITIVE_INFINITY : Math.abs(outputAspect - styleAspect);
-
-  if (handDelta > 0.12 && styleDelta + 0.04 < handDelta) {
-    throw createAppError('Qwen image output used the style reference canvas instead of the uploaded hand canvas', 502, {
-      detail: JSON.stringify({ handDimensions, outputDimensions, styleDimensions }),
-    });
-  }
-};
-
-export const generateTryOnImage = async ({ handImageUrl, styleImageUrl, styleName, styleTags }: GenerateTryOnImageInput) => {
-  if (!env.DASHSCOPE_API_KEY) {
-    throw createAppError('DASHSCOPE_API_KEY is not configured', undefined, { code: 'MISSING_DASHSCOPE_API_KEY' });
-  }
-
-  const [handDimensions, styleDimensions] = await Promise.all([getImageDimensions(handImageUrl), getImageDimensions(styleImageUrl)]);
-  const styleHint = formatStyleHint({ styleName, styleTags });
-  const prompt = [
-    '你是专业美甲局部重绘模型。请执行“只重绘指甲甲面”的图片编辑任务，不要生成全新场景。',
-    '',
-    '输入说明：',
-    '图1是用户上传的原始手图，也是最终输出必须使用的唯一画布。',
-    '图2是美甲款式参考图，但图2中的手、皮肤、戒指、袖口、花、背景、道具都不是目标内容。',
-    '图3与图1相同，用于再次锁定最终画布、手势、背景、镜头角度、裁切和可见手指数。',
-    styleHint ? `款式语义参考：\n${styleHint}` : '',
-    '',
-    '最高优先级硬规则：',
-    '1. 最终图必须保持图1/图3的同一只手、同一手势、同一背景、同一光影、同一镜头角度、同一裁切范围。',
-    '2. 只能编辑图1/图3中真实存在的指甲甲面区域；手指、手背、皮肤纹理、关节、戒指、背景和画面外区域都不能被重绘。',
-    '3. 图1/图3中原本已有的美甲颜色和图案只是旧甲面，必须完全擦除并替换为图2款式；不要保留蓝色、花朵或任何原图旧甲片设计。',
-    '4. 图2只用于提取甲片设计：主色、跳色顺序、棋盘格/线条/花纹形状、渐变方向、亮片密度、钻饰位置、金属/珠光/猫眼高光、透明度和法式边。',
-    '5. 如果图2每个手指有不同设计，请按从拇指到小指的视觉节奏迁移到图1/图3对应可见指甲；不要把复杂款式简化成纯色。',
-    '6. 图2里的装饰只能出现在甲面内部，并且必须被甲面边界裁切；绝对不要把亮片、棋盘格、花、贴纸或任何装饰散落到手背、背景或画面其他位置。',
-    '7. 禁止复制图2的手势、皮肤、戒指、袖口、背景、花朵、道具或人物结构；禁止把图2画布当成输出画布。',
-    '8. 禁止新增图1/图3不存在的物体，包括鸟、蝴蝶、彩纸、贴纸、漂浮方块、额外花朵、文字、Logo、水印。',
-    '9. 不能移动、旋转、拉长、缩短、重绘或遮挡任何手指；不能裁掉拇指、小指、指尖或画面边缘已有的手指。',
-    '10. 如果无法完全识别某个指甲的图案，也要保持图1/图3手势和背景优先，只在甲面内做最接近图2的款式复刻。',
-    '',
-    '输出要求：',
-    '最终图看起来必须仍然是图1/图3这张照片，只是每个真实指甲准确佩戴图2款式。',
-    '不要生成插画感、拼贴感、海报感、贴纸感或奇幻装饰效果。',
-  ].join('\n');
-
-  const response = await fetch(env.DASHSCOPE_IMAGE_ENDPOINT, {
+  const response = await fetch(`${env.CATS_API_BASE_URL}/tasks`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${env.DASHSCOPE_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
+    headers: getCatsHeaders(),
     body: JSON.stringify({
-      model: env.QWEN_IMAGE_MODEL,
-      input: {
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { image: handImageUrl },
-              { image: styleImageUrl },
-              { image: handImageUrl },
-              { text: prompt },
-            ],
-          },
-        ],
+      model: env.CATS_IMAGE_MODEL,
+      prompt,
+      task_type: 'image',
+      num_images: 1,
+      params: {
+        quality: 'auto',
+        rewritePrompt: false,
+        size,
       },
-      parameters: {
-        n: 1,
-        prompt_extend: false,
-        size: getQwenSizeFromHand(handDimensions),
-        watermark: false,
-        negative_prompt:
-          'use image 2 as canvas, copy image 2 hand, copy image 2 ring, copy image 2 sleeve, copy image 2 background, changed hand pose, curled fist, clenched hand, palm side, moved fingers, different gesture, changed camera angle, changed crop, cropped fingers, missing thumb, missing pinky, missing fingers, hidden fingers, extra fingers, deformed fingers, fused fingers, elongated fingers, shortened fingers, changed background, changed skin tone, keep old nail polish, keep original blue nails, old manicure remains, simplified nail design, plain nails, wrong nail pattern, wrong nail color, random decoration outside nails, invented decoration, floating confetti, colored squares, birds, butterflies, stickers, flowers outside nails, glitter outside nails, rhinestones outside nails, missing checkerboard, missing stripe, missing glitter, missing rhinestones, missing french tip, missing cat eye highlight, text, logo, watermark',
-      },
+      images,
     }),
   });
 
-  if (!response.ok) {
-    const detail = await response.text();
-    throw createAppError(`Qwen image request failed: ${response.status}`, response.status, { detail });
-  }
+  const payload = (await response.json().catch(() => ({}))) as CatsTaskResponse;
 
-  const payload = (await response.json()) as JsonRecord;
-  const imageUrl = extractImageUrl(payload);
-
-  if (!imageUrl) {
-    throw createAppError('Qwen image response did not include an image URL', 502, {
+  if (!response.ok || !payload.id) {
+    throw createAppError(`Cats image task create failed: ${response.status}`, response.status, {
       detail: JSON.stringify(payload).slice(0, 1000),
     });
   }
 
-  await assertOutputUsesHandCanvas({
-    handDimensions,
-    outputImageUrl: imageUrl,
-    payload,
-    styleDimensions,
+  return payload.id;
+};
+
+const pollCatsTask = async (taskId: string, label: string) => {
+  const maxAttempts = 60;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const response = await fetch(`${env.CATS_API_BASE_URL}/tasks/${taskId}`, {
+      headers: getCatsHeaders(),
+    });
+    const payload = (await response.json().catch(() => ({}))) as CatsTaskResponse;
+
+    if (!response.ok) {
+      throw createAppError(`${label} query failed: ${response.status}`, response.status, {
+        detail: JSON.stringify(payload).slice(0, 1000),
+      });
+    }
+
+    if (payload.status === 'completed') {
+      const imageUrl = getFirstResultImage(payload);
+      if (!imageUrl) {
+        throw createAppError(`${label} completed without result image`, 502, {
+          detail: JSON.stringify(payload).slice(0, 1000),
+        });
+      }
+
+      return {
+        imageUrl,
+        raw: payload,
+      };
+    }
+
+    if (payload.status === 'failed') {
+      throw createAppError(`${label} failed: ${payload.error_message ?? 'unknown error'}`, 502, {
+        detail: JSON.stringify(payload).slice(0, 1000),
+      });
+    }
+
+    await sleep(2500);
+  }
+
+  throw createAppError(`${label} timed out`, 504, { detail: JSON.stringify({ taskId }) });
+};
+
+const runCatsImageTask = async ({
+  images,
+  label,
+  prompt,
+  size,
+}: {
+  images: Array<{ base64: string; name: string }>;
+  label: string;
+  prompt: string;
+  size: string;
+}) => {
+  const taskId = await createCatsTask({ images, prompt, size });
+  console.log(`[AI 试戴] ${label}任务已创建`, {
+    taskId,
+    time: new Date().toLocaleString('zh-CN', { hour12: false }),
+  });
+  return pollCatsTask(taskId, label);
+};
+
+export const compressImageToWebpDataUrl = async (image: string) => {
+  const bytes = Buffer.from(await getImageBytes(image));
+  const webp = await sharp(bytes)
+    .rotate()
+    .resize({
+      fit: 'inside',
+      height: OUTPUT_MAX_EDGE,
+      width: OUTPUT_MAX_EDGE,
+      withoutEnlargement: true,
+    })
+    .webp({
+      effort: 5,
+      quality: OUTPUT_WEBP_QUALITY,
+    })
+    .toBuffer();
+
+  return `data:image/webp;base64,${webp.toString('base64')}`;
+};
+
+const buildTryOnComposePrompt = (styleHint: string) =>
+  [
+    '把图1中的美甲款式自然合成到图2用户原手图的真实指甲上，生成真实摄影风格的美甲试戴结果。',
+    '',
+    '输入说明：',
+    '图1：完整美甲款式参考图，只提供甲片设计信息。',
+    '图2：用户上传的原始手图，是最终画面的主体。',
+    styleHint ? `款式语义参考：\n${styleHint}` : '',
+    '',
+    '强制要求：',
+    '1. 保持图2的同一只手、同一手势、同一肤色、同一背景、同一光影、同一镜头角度、同一裁切范围。',
+    '2. 只提取图1中的甲片设计，不要复制图1里的手、皮肤、戒指、袖口、背景、花朵、道具、文字或构图。',
+    '3. 如果图1每个手指款式不同，请把这种“每指不同”的节奏迁移到图2对应真实指甲上，按目标指甲的透视、弧度、宽度、长度自然变形。',
+    '4. 图2原本的旧美甲颜色和旧图案必须被新甲片覆盖。',
+    '5. 图1甲片上的花纹、棋盘格、钻饰、亮片、渐变、法式边、高光和透明质感必须尽量保留，不要简化成纯色。',
+    '6. 甲片必须严格停留在真实甲床边界内：要清楚保留后缘指皮、近甲皱襞、两侧甲沟和手指皮肤的分界线，不要把颜色或材质长进手指肉里。',
+    '7. 指甲根部需要有明确的 cuticle 边界感，甲片不要覆盖到指缘皮肤；甲片两侧也不要溢出到侧边皮肤，保留真实的侧缘阴影与缝隙。',
+    '8. 甲片前端可以延伸到真实自由缘，但不能从指甲内部向手指根部倒灌，也不能让甲片看起来埋进手指里面。',
+    '9. 甲片只能出现在真实指甲区域内，不要画到手指、手背、关节、背景或画面其他位置。',
+    '10. 不要移动、旋转、重绘、弯曲、拉长、缩短或遮挡任何手指；不要改变手势，不要裁掉指尖。',
+    '11. 不要新增鸟、蝴蝶、彩纸、贴纸、漂浮方块、额外花朵、文字、Logo、水印或任何无关装饰。',
+    '',
+    '输出必须像图2原照片的自然延续，只是用户真实指甲佩戴了图1款式。',
+    '尤其要保证能看出真实指甲与手指皮肤之间的边界感，不要出现“美甲长进手指里面”的效果。',
+  ].join('\n');
+
+export const generateTryOnImage = async ({ handImageUrl, styleImageUrl, styleName, styleTags }: GenerateTryOnImageInput) => {
+  if (!env.CATS_API_KEY) {
+    throw createAppError('CATS_API_KEY is not configured', undefined, { code: 'MISSING_CATS_API_KEY' });
+  }
+
+  const [handDimensions, handBase64, styleBase64] = await Promise.all([
+    getImageDimensions(handImageUrl),
+    getImageBase64(handImageUrl),
+    getImageBase64(styleImageUrl),
+  ]);
+  const styleHint = formatStyleHint({ styleName, styleTags });
+  const finalResult = await runCatsImageTask({
+    images: [
+      { base64: styleBase64, name: 'style-reference.png' },
+      { base64: handBase64, name: 'original-hand.png' },
+    ],
+    label: '试戴合成',
+    prompt: buildTryOnComposePrompt(styleHint),
+    size: getCatsSizeFromHand(handDimensions),
   });
 
   return {
-    imageUrl,
-    raw: payload,
+    imageUrl: finalResult.imageUrl,
+    provider: env.CATS_IMAGE_MODEL,
+    raw: finalResult.raw,
   };
 };

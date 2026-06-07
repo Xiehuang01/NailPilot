@@ -9,6 +9,7 @@ import consumerAgentRouter from './routes/consumerAgent.js';
 import handRouter from './routes/hand.js';
 import merchantRouter from './routes/merchant.js';
 import recommendationRouter from './routes/recommendations.js';
+import styleSelectionRouter from './routes/styleSelections.js';
 import styleRouter from './routes/styles.js';
 import tryOnRouter from './routes/tryOn.js';
 
@@ -43,6 +44,7 @@ app.get('/', (_req, res) => {
 app.use('/api/health', healthRouter);
 app.use('/api/consumer-agent', consumerAgentRouter);
 app.use('/api/styles', styleRouter);
+app.use('/api/style-selections', styleSelectionRouter);
 app.use('/api/hand', handRouter);
 app.use('/api/try-on', tryOnRouter);
 app.use('/api/recommendations', recommendationRouter);

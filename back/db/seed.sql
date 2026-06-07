@@ -5,6 +5,8 @@ DELETE FROM merchant_funnel;
 DELETE FROM merchant_trends;
 DELETE FROM merchant_style_stats;
 DELETE FROM merchant_dashboard_summary;
+DELETE FROM style_selection_events;
+DELETE FROM try_on_events;
 DELETE FROM bookings;
 DELETE FROM recommendations;
 DELETE FROM try_on_templates;

@@ -10,6 +10,26 @@ type StyleRow = RowDataPacket & {
   tags: string;
 };
 
+const parseTags = (tags: unknown) => {
+  if (Array.isArray(tags)) {
+    return tags.map(String).filter(Boolean);
+  }
+
+  if (typeof tags !== 'string' || !tags.trim()) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(tags);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return tags
+      .split(/[,，、]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+};
+
 export const getStyles = async () => {
   const db = getDb();
   const [rows] = await db.query<StyleRow[]>(`
@@ -21,7 +41,7 @@ export const getStyles = async () => {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
-    tags: JSON.parse(row.tags),
+    tags: parseTags(row.tags),
     price: row.price,
     score: row.score,
     img: row.image_url,

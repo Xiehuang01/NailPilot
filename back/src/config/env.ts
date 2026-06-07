@@ -11,11 +11,16 @@ export const env = {
   DB_PASSWORD: process.env.DB_PASSWORD ?? '',
   DB_NAME: process.env.DB_NAME ?? 'nailpilot',
   CORS_ORIGIN: process.env.CORS_ORIGIN ?? 'http://localhost:3000,http://localhost:3002',
+  CATS_API_BASE_URL: process.env.CATS_API_BASE_URL ?? 'https://catsapi.com/api',
+  CATS_API_KEY: process.env.CATS_API_KEY ?? '',
+  CATS_IMAGE_MODEL: process.env.CATS_IMAGE_MODEL ?? 'gptImage2',
   DASHSCOPE_API_KEY: process.env.DASHSCOPE_API_KEY ?? '',
   DASHSCOPE_BASE_URL: process.env.DASHSCOPE_BASE_URL ?? 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   DASHSCOPE_IMAGE_ENDPOINT:
     process.env.DASHSCOPE_IMAGE_ENDPOINT ?? 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation',
+  HAND_QUALITY_MODEL: process.env.HAND_QUALITY_MODEL ?? 'qwen-vl-plus',
+  TRY_ON_REVIEW_MODEL: process.env.TRY_ON_REVIEW_MODEL ?? 'qwen-vl-plus',
   QWEN_MODEL: process.env.QWEN_MODEL ?? 'qwen3.6-plus',
-  QWEN_IMAGE_MODEL: process.env.QWEN_IMAGE_MODEL ?? 'qwen-image-2.0',
+  QWEN_IMAGE_MODEL: process.env.QWEN_IMAGE_MODEL ?? 'wan2.7-image',
   AGENT_MAX_LOOPS: Number.parseInt(process.env.AGENT_MAX_LOOPS ?? '4', 10),
 };

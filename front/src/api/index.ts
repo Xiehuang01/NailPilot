@@ -8,16 +8,27 @@ export type StyleItem = {
 };
 
 export type AnalysisResult = {
+  fingersSpread?: boolean;
   skinTone: string;
   handShape: string;
+  isValidPhoto?: boolean;
   nailBed: string;
+  nailVisible?: boolean;
+  qualityReason?: string;
+  suggestions?: string[];
 };
 
 export type TryOnResult = {
   resultUrl: string;
   score: number;
+  scoreBreakdown?: {
+    brightenScore: number;
+    fitScore: number;
+    styleMatchScore: number;
+  };
   explanation: string[];
   provider?: string;
+  recommendations?: Recommendation[];
 };
 
 export type Recommendation = {
@@ -160,23 +171,18 @@ export const getStyles = async (): Promise<StyleItem[]> => {
   }
 };
 
-export const analyzeHand = async (_imageUrl: string): Promise<AnalysisResult> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        skinTone: '暖黄皮',
-        handShape: '短圆手',
-        nailBed: '偏短'
-      });
-    }, 1500);
+export const analyzeHand = async (imageUrl: string): Promise<AnalysisResult> => {
+  return requestJson<AnalysisResult>('/hand/analyze', {
+    method: 'POST',
+    body: JSON.stringify({imageUrl}),
   });
 };
 
-export const createTryOn = async (styleId: number, imageUrl: string): Promise<TryOnResult> => {
+export const createTryOn = async (styleId: number, imageUrl: string, analysis?: AnalysisResult | null): Promise<TryOnResult> => {
   try {
     return await requestJson<TryOnResult>('/try-on', {
       method: 'POST',
-      body: JSON.stringify({styleId, imageUrl}),
+      body: JSON.stringify({styleId, imageUrl, analysis}),
     });
   } catch (error) {
     console.warn('Falling back to local try-on data:', error);
@@ -184,11 +190,26 @@ export const createTryOn = async (styleId: number, imageUrl: string): Promise<Tr
     return {
       resultUrl: style.img,
       score: 86,
+      scoreBreakdown: {
+        brightenScore: 85,
+        fitScore: 82,
+        styleMatchScore: 88,
+      },
       explanation: [
         '当前款式来自商家真实款式库',
         '颜色与手部肤色匹配度较稳定',
         '建议继续查看更高适配款式',
       ],
+      recommendations: fallbackStyles
+        .filter((item) => item.id !== style.id)
+        .slice(0, 3)
+        .map((item) => ({
+          id: item.id,
+          name: item.name,
+          score: item.score,
+          reason: `${item.tags.slice(0, 2).join('、')} 风格更容易适配当前手型和肤色。`,
+          img: item.img,
+        })),
     };
   }
 };
@@ -212,6 +233,26 @@ export const createBooking = async (_shopId: string, _styleId: number, _time: st
       resolve({ success: true, message: '预约成功，本次为 Demo 模拟预约，不产生真实订单。' });
     }, 800);
   });
+};
+
+export const trackStyleSelection = async ({
+  sessionId,
+  source,
+  styleId,
+}: {
+  sessionId?: string | null;
+  source?: string;
+  styleId: number;
+}) => {
+  try {
+    return await requestJson<{ success: boolean }>('/style-selections', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId, source, styleId }),
+    });
+  } catch (error) {
+    console.warn('Failed to record style selection:', error);
+    return { success: false };
+  }
 };
 
 export const getMerchantDashboard = async (): Promise<MerchantDashboard> => {

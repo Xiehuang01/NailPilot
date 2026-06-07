@@ -18,18 +18,19 @@ import {
   createTryOn,
   getRecommendations,
   getStyles,
+  trackStyleSelection,
   type Recommendation,
   type StyleItem,
 } from '@/api';
 import ConsumerChat from '@/components/ConsumerChat.vue';
 import {cn} from '@/lib/utils';
-import {useTryOnStore} from '@/stores/tryOn';
+import {type TryOnHistoryItem, useTryOnStore} from '@/stores/tryOn';
 import {useUserStore} from '@/stores/user';
 
 const tryOnStore = useTryOnStore();
 const userStore = useUserStore();
 
-const {analysisResult, recommendations, selectedStyleId, stepperIndex, tryOnResult, uploadedImageUrl} =
+const {analysisResult, recommendations, selectedStyleId, stepperIndex, tryOnHistory, tryOnResult, uploadedImageUrl} =
   storeToRefs(tryOnStore);
 const {preferences} = storeToRefs(userStore);
 
@@ -44,13 +45,29 @@ const fileInputRef = ref<HTMLInputElement | null>(null);
 const videoRef = ref<HTMLVideoElement | null>(null);
 const cameraStream = ref<MediaStream | null>(null);
 const cameraError = ref('');
+const handQualityChecking = ref(false);
+const handQualityError = ref('');
 const isCameraStarting = ref(false);
 const showDemoHandList = ref(false);
+const showHistoryPanel = ref(false);
 const styleListRef = ref<HTMLElement | null>(null);
 const focusedStyleId = ref<number | null>(null);
+const isTryOnRunning = ref(false);
+const tryOnStatusMessage = ref('');
+const backgroundTryOnNotice = ref('');
+const lastCompletedTryOnKey = ref('');
+const activeTryOnKey = ref('');
+const pendingTryOnCount = ref(0);
+const activeTryOnContext = ref<{
+  analysis: typeof analysisResult.value;
+  styleId: number;
+  uploadedImageUrl: string;
+} | null>(null);
 let tryOnRunId = 0;
+let handQualityRunId = 0;
 let progressTimer: number | null = null;
 let focusedStyleTimer: number | null = null;
+let pseudoProgressValue = 0;
 
 const steps = [
   {title: '偏好选择'},
@@ -61,6 +78,10 @@ const steps = [
 ];
 
 const tryOnBadgeText = computed(() => (tryOnResult.value?.provider === 'safe-hand-fallback' ? '原图保护' : 'AI GENERATED'));
+const historyItems = computed(() => tryOnHistory.value ?? []);
+const currentTryOnKey = computed(() => `${selectedStyleId.value ?? 0}::${uploadedImageUrl.value ?? ''}`);
+const topRecommendation = computed(() => recommendationsList()[0] ?? null);
+const pendingTryOnBannerText = computed(() => `你目前正在有 ${pendingTryOnCount.value} 款美甲正在生成，点击之后就会自动跳转到生成的进度界面`);
 
 onMounted(async () => {
   tryOnStore.resetDefault();
@@ -86,41 +107,28 @@ watch(stepperIndex, async (index) => {
     return;
   }
 
-  const currentRun = ++tryOnRunId;
-  loadingStep.value = 1;
-  setGenerationProgress(8);
-
-  const analysis = await analyzeHand(uploadedImageUrl.value ?? '');
-  if (currentRun !== tryOnRunId) {
+  if (lastCompletedTryOnKey.value && lastCompletedTryOnKey.value === currentTryOnKey.value && tryOnResult.value) {
+    loadingStep.value = 4;
+    setGenerationProgress(100);
     return;
   }
-  tryOnStore.setAnalysisResult(analysis);
 
-  loadingStep.value = 2;
-  startPseudoProgress(24, 92);
-  const result = await createTryOn(selectedStyleId.value ?? 1, uploadedImageUrl.value ?? '');
-  if (currentRun !== tryOnRunId) {
+  if (isTryOnRunning.value && activeTryOnKey.value === currentTryOnKey.value) {
     return;
   }
-  stopPseudoProgress();
-  setGenerationProgress(96);
-  tryOnStore.setTryOnResult(result);
 
-  loadingStep.value = 3;
-  startPseudoProgress(96, 99, 450);
-  const nextRecommendations = await getRecommendations();
-  if (currentRun !== tryOnRunId) {
-    return;
+  void runTryOnPipeline();
+});
+
+watch(showChat, (value) => {
+  if (value) {
+    showHistoryPanel.value = false;
   }
-  stopPseudoProgress();
-  tryOnStore.setRecommendations(nextRecommendations);
-  setGenerationProgress(100);
-  loadingStep.value = 4;
 });
 
 const startTryOn = (quickMode: boolean, styleId?: number) => {
   if (styleId) {
-    tryOnStore.setSelectedStyleId(styleId);
+    selectStyle(styleId, 'ai_recommendation');
   }
 
   if (styleId && uploadedImageUrl.value) {
@@ -130,6 +138,69 @@ const startTryOn = (quickMode: boolean, styleId?: number) => {
   }
 
   showChat.value = false;
+};
+
+const formatHistoryTime = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '刚刚';
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    month: '2-digit',
+  }).format(date);
+};
+
+const restoreHistoryItem = (item: TryOnHistoryItem) => {
+  tryOnStore.setAnalysisResult(item.analysis);
+  tryOnStore.setRecommendations(item.recommendations);
+  if (item.styleId) {
+    selectStyle(item.styleId, 'history_restore');
+  } else {
+    tryOnStore.setSelectedStyleId(item.styleId);
+  }
+  tryOnStore.setTryOnResult(item.result);
+  tryOnStore.setUploadedImageUrl(item.uploadedImageUrl);
+  lastCompletedTryOnKey.value = `${item.styleId ?? 0}::${item.uploadedImageUrl ?? ''}`;
+  tryOnStore.setStepperIndex(3);
+  showHistoryPanel.value = false;
+};
+
+const selectStyle = (styleId: number, source: 'catalog' | 'ai_recommendation' | 'history_restore' = 'catalog') => {
+  tryOnStore.setSelectedStyleId(styleId);
+  void trackStyleSelection({
+    sessionId: userStore.sessionId,
+    source,
+    styleId,
+  });
+};
+
+const dismissBackgroundTryOnNotice = () => {
+  backgroundTryOnNotice.value = '';
+};
+
+const leaveTryOnToBackground = () => {
+  tryOnStore.setStepperIndex(2);
+};
+
+const jumpToGeneratingTryOn = () => {
+  const context = activeTryOnContext.value;
+  if (!context) {
+    return;
+  }
+
+  tryOnStore.setSelectedStyleId(context.styleId);
+  tryOnStore.setUploadedImageUrl(context.uploadedImageUrl);
+  tryOnStore.setAnalysisResult(context.analysis ?? null);
+  tryOnStore.setStepperIndex(3);
+};
+
+const handleRecommendationTryOn = (styleId: number) => {
+  selectStyle(styleId, 'ai_recommendation');
+  tryOnStore.setStepperIndex(3);
 };
 
 const stopFocusedStylePulse = () => {
@@ -222,9 +293,64 @@ const selectCaptureMode = (mode: 'upload' | 'camera') => {
   stopCamera();
 };
 
-const handleUpload = () => {
+const resetUploadedHand = () => {
+  handQualityRunId += 1;
+  handQualityChecking.value = false;
+  handQualityError.value = '';
   showDemoHandList.value = false;
+  tryOnStore.setAnalysisResult(null);
+  tryOnStore.setUploadedImageUrl(null);
+};
+
+const handleUpload = async () => {
+  resetUploadedHand();
+  captureMode.value = 'upload';
+  stopCamera();
+  await nextTick();
   fileInputRef.value?.click();
+};
+
+const handleRetake = async () => {
+  resetUploadedHand();
+  captureMode.value = 'camera';
+  showDemoHandList.value = false;
+  await startCamera();
+};
+
+const acceptUploadedHandImage = async (url: string, mode: 'camera' | 'upload') => {
+  const currentRun = ++handQualityRunId;
+  captureMode.value = mode;
+  handQualityError.value = '';
+  handQualityChecking.value = true;
+  tryOnStore.setUploadedImageUrl(url);
+  tryOnStore.setAnalysisResult(null);
+
+  try {
+    const analysis = await analyzeHand(url);
+    if (currentRun !== handQualityRunId) {
+      return;
+    }
+
+    tryOnStore.setAnalysisResult(analysis);
+    if (analysis.isValidPhoto === false || analysis.fingersSpread === false || analysis.nailVisible === false) {
+      handQualityError.value =
+        analysis.qualityReason || 'AI 检测到手指没有充分张开或指尖不够清晰，请重新上传一张手部照片。';
+      tryOnStore.setUploadedImageUrl(null);
+      tryOnStore.setStepperIndex(1);
+    }
+  } catch (error) {
+    if (currentRun !== handQualityRunId) {
+      return;
+    }
+
+    handQualityError.value = error instanceof Error ? error.message : '手图质量检查失败，请重新上传。';
+    tryOnStore.setUploadedImageUrl(null);
+    tryOnStore.setStepperIndex(1);
+  } finally {
+    if (currentRun === handQualityRunId) {
+      handQualityChecking.value = false;
+    }
+  }
 };
 
 const handleFileSelected = (event: Event) => {
@@ -237,9 +363,8 @@ const handleFileSelected = (event: Event) => {
   const reader = new FileReader();
   reader.onload = () => {
     if (typeof reader.result === 'string') {
-      captureMode.value = 'upload';
       stopCamera();
-      tryOnStore.setUploadedImageUrl(reader.result);
+      void acceptUploadedHandImage(reader.result, 'upload');
     }
   };
   reader.readAsDataURL(file);
@@ -247,10 +372,9 @@ const handleFileSelected = (event: Event) => {
 };
 
 const selectDemoHandImage = (url: string) => {
-  captureMode.value = 'upload';
   showDemoHandList.value = false;
   stopCamera();
-  tryOnStore.setUploadedImageUrl(url);
+  void acceptUploadedHandImage(url, 'upload');
 };
 
 async function startCamera() {
@@ -316,8 +440,8 @@ const handleCapture = async () => {
   }
 
   context.drawImage(video, 0, 0, canvas.width, canvas.height);
-  tryOnStore.setUploadedImageUrl(canvas.toDataURL('image/jpeg', 0.92));
   stopCamera();
+  void acceptUploadedHandImage(canvas.toDataURL('image/jpeg', 0.92), 'camera');
 };
 
 const handleBook = async () => {
@@ -346,7 +470,8 @@ const overlayHint = () =>
   captureMode.value === 'camera' ? '将手掌与指尖对齐轮廓后拍摄' : '将手掌放在轮廓中后上传照片';
 
 const setGenerationProgress = (value: number) => {
-  generationProgress.value = Math.max(0, Math.min(100, Math.round(value)));
+  pseudoProgressValue = Math.max(0, Math.min(100, value));
+  generationProgress.value = Math.round(pseudoProgressValue);
 };
 
 const stopPseudoProgress = () => {
@@ -356,19 +481,136 @@ const stopPseudoProgress = () => {
   }
 };
 
-const startPseudoProgress = (from: number, to: number, interval = 700) => {
+const startPseudoProgress = (from: number, to: number, interval = 820, easing = 0.08, maxStep = 2.4) => {
   stopPseudoProgress();
   setGenerationProgress(Math.max(generationProgress.value, from));
   progressTimer = window.setInterval(() => {
-    if (generationProgress.value >= to) {
+    if (pseudoProgressValue >= to) {
       stopPseudoProgress();
       return;
     }
 
-    const distance = to - generationProgress.value;
-    const step = Math.max(1, Math.ceil(distance * 0.16));
-    setGenerationProgress(Math.min(to, generationProgress.value + step));
+    const distance = to - pseudoProgressValue;
+    const step = Math.max(0.35, Math.min(maxStep, distance * easing));
+    setGenerationProgress(Math.min(to, pseudoProgressValue + step));
   }, interval);
+};
+
+const runTryOnPipeline = async () => {
+  const taskKey = currentTryOnKey.value;
+  const currentRun = ++tryOnRunId;
+  const selectedStyleIdAtStart = selectedStyleId.value ?? 1;
+  const uploadedImageUrlAtStart = uploadedImageUrl.value ?? '';
+  const selectedStyleAtStart = styles.value.find((item) => item.id === selectedStyleIdAtStart) ?? null;
+  activeTryOnKey.value = taskKey;
+  backgroundTryOnNotice.value = '';
+  pendingTryOnCount.value += 1;
+  isTryOnRunning.value = true;
+  loadingStep.value = 1;
+  tryOnStatusMessage.value = '正在分析手型与肤色...';
+  tryOnStore.setTryOnResult(null);
+  tryOnStore.setRecommendations(null);
+  setGenerationProgress(6);
+
+  try {
+    const analysis = analysisResult.value ?? (await analyzeHand(uploadedImageUrlAtStart));
+    activeTryOnContext.value = {
+      analysis,
+      styleId: selectedStyleIdAtStart,
+      uploadedImageUrl: uploadedImageUrlAtStart,
+    };
+    if (currentRun !== tryOnRunId) {
+      return;
+    }
+
+    tryOnStore.setAnalysisResult(analysis);
+    loadingStep.value = 2;
+    tryOnStatusMessage.value = '正在细化手部纹理与款式细节...';
+    startPseudoProgress(16, 86, 860, 0.07, 2);
+    const result = await createTryOn(selectedStyleIdAtStart, uploadedImageUrlAtStart, analysis);
+
+    if (currentRun !== tryOnRunId) {
+      const nextRecommendationsForHistory = result.recommendations?.length ? result.recommendations : await getRecommendations();
+      if (selectedStyleAtStart) {
+        tryOnStore.pushTryOnHistory({
+          analysis,
+          recommendations: nextRecommendationsForHistory,
+          result,
+          styleId: selectedStyleAtStart.id,
+          styleImageUrl: selectedStyleAtStart.img,
+          styleName: selectedStyleAtStart.name,
+          uploadedImageUrl: uploadedImageUrlAtStart,
+        });
+      }
+      return;
+    }
+
+    stopPseudoProgress();
+    setGenerationProgress(92);
+    loadingStep.value = 3;
+    tryOnStatusMessage.value = '正在做审美复评与智能推荐...';
+    startPseudoProgress(92, 97, 1100, 0.16, 1.2);
+    const nextRecommendations = result.recommendations?.length ? result.recommendations : await getRecommendations();
+    const taskStillMatchesCurrentSelection = currentTryOnKey.value === taskKey;
+
+    if (currentRun !== tryOnRunId) {
+      if (selectedStyleAtStart) {
+        tryOnStore.pushTryOnHistory({
+          analysis,
+          recommendations: nextRecommendations,
+          result,
+          styleId: selectedStyleAtStart.id,
+          styleImageUrl: selectedStyleAtStart.img,
+          styleName: selectedStyleAtStart.name,
+          uploadedImageUrl: uploadedImageUrlAtStart,
+        });
+      }
+      return;
+    }
+
+    stopPseudoProgress();
+    if (taskStillMatchesCurrentSelection) {
+      tryOnStore.setTryOnResult(result);
+      tryOnStore.setRecommendations(nextRecommendations);
+    }
+    lastCompletedTryOnKey.value = taskKey;
+    if (selectedStyleAtStart) {
+      tryOnStore.pushTryOnHistory({
+        analysis,
+        recommendations: nextRecommendations,
+        result,
+        styleId: selectedStyleAtStart.id,
+        styleImageUrl: selectedStyleAtStart.img,
+        styleName: selectedStyleAtStart.name,
+        uploadedImageUrl: uploadedImageUrlAtStart,
+      });
+    }
+
+    setGenerationProgress(100);
+    loadingStep.value = 4;
+    if (stepperIndex.value !== 3 || !taskStillMatchesCurrentSelection) {
+      backgroundTryOnNotice.value = '上一张试戴图已经生成好了，点右上角“历史试戴”就能回看。';
+    }
+  } catch (error) {
+    if (currentRun === tryOnRunId) {
+      stopPseudoProgress();
+      isTryOnRunning.value = false;
+      tryOnStatusMessage.value = '';
+      backgroundTryOnNotice.value = error instanceof Error ? error.message : 'AI 试戴生成失败，请重试。';
+      loadingStep.value = 0;
+      setGenerationProgress(0);
+    }
+  } finally {
+    if (currentRun === tryOnRunId) {
+      isTryOnRunning.value = false;
+      tryOnStatusMessage.value = '';
+    }
+
+    pendingTryOnCount.value = Math.max(0, pendingTryOnCount.value - 1);
+    if (pendingTryOnCount.value === 0) {
+      activeTryOnContext.value = null;
+    }
+  }
 };
 
 const handGuidePath =
@@ -384,12 +626,73 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
 
       <div v-else class="flex flex-col h-full w-full bg-[#f8f9fa] overflow-hidden">
         <div class="w-full bg-white px-4 pt-4 pb-4 border-b border-gray-100 shrink-0 shadow-sm z-10 relative">
+          <button
+            v-if="historyItems.length"
+            type="button"
+            class="absolute right-4 top-4 rounded-full border border-[#FFD100]/45 bg-[#FFFBE7] px-3 py-1 text-[11px] font-semibold text-[#8C6A00] transition hover:bg-[#FFF4B5]"
+            @click="showHistoryPanel = !showHistoryPanel"
+          >
+            历史试戴
+          </button>
+
           <div class="flex items-center mb-4">
             <button type="button" class="p-1.5 rounded-full hover:bg-gray-100 transition-colors shrink-0" @click="showChat = true">
               <ChevronLeft class="w-5 h-5 text-gray-700" />
             </button>
             <div class="flex-1 text-center font-semibold text-gray-800 text-sm mr-8">
               {{ steps[stepperIndex].title }}
+            </div>
+          </div>
+
+          <button
+            v-if="pendingTryOnCount > 0 && stepperIndex !== 3"
+            type="button"
+            class="mb-4 flex w-full items-start justify-between gap-3 rounded-2xl border border-[#FFD100]/35 bg-[#FFFBEA] px-3.5 py-3 text-left text-sm text-[#8C6A00] transition hover:bg-[#FFF7D2]"
+            @click="jumpToGeneratingTryOn"
+          >
+            <p class="leading-relaxed">{{ pendingTryOnBannerText }}</p>
+            <span class="shrink-0 rounded-full bg-white/80 px-2 py-1 text-[11px] font-semibold text-[#8C6A00] shadow-sm">去查看</span>
+          </button>
+
+          <div
+            v-else-if="backgroundTryOnNotice"
+            class="mb-4 flex items-start justify-between gap-3 rounded-2xl border border-[#FFD100]/35 bg-[#FFFBEA] px-3.5 py-3 text-sm text-[#8C6A00]"
+          >
+            <p class="leading-relaxed">{{ backgroundTryOnNotice }}</p>
+            <button
+              type="button"
+              class="shrink-0 text-xs font-semibold text-[#8C6A00]/70 transition hover:text-[#8C6A00]"
+              @click="dismissBackgroundTryOnNotice"
+            >
+              知道了
+            </button>
+          </div>
+
+          <div
+            v-if="showHistoryPanel && historyItems.length"
+            class="absolute right-4 top-14 z-30 w-[248px] overflow-hidden rounded-[22px] border border-[#FFD100]/30 bg-white shadow-[0_18px_40px_rgba(15,23,42,0.14)]"
+          >
+            <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+              <span class="text-sm font-semibold text-gray-900">最近试戴</span>
+              <button type="button" class="text-[11px] font-medium text-gray-400 transition hover:text-gray-600" @click="showHistoryPanel = false">
+                收起
+              </button>
+            </div>
+            <div class="max-h-[280px] overflow-y-auto px-3 py-3">
+              <button
+                v-for="item in historyItems"
+                :key="item.id"
+                type="button"
+                class="mb-2 flex w-full items-center gap-3 rounded-2xl border border-gray-100 bg-[#FCFCFD] p-2.5 text-left transition hover:border-[#FFD100]/60 hover:bg-[#FFFDF5]"
+                @click="restoreHistoryItem(item)"
+              >
+                <img :src="item.result.resultUrl" :alt="item.styleName" class="h-14 w-14 rounded-xl object-cover bg-gray-100">
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-semibold text-gray-900">{{ item.styleName }}</div>
+                  <div class="mt-1 text-xs text-gray-500">{{ formatHistoryTime(item.createdAt) }}</div>
+                  <div class="mt-1 text-xs font-medium text-[#8C6A00]">适配 {{ item.result.score }} 分</div>
+                </div>
+              </button>
             </div>
           </div>
 
@@ -490,10 +793,10 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                   <button
                     type="button"
                     :disabled="!isPreferenceComplete()"
-                    class="flex items-center gap-2 bg-gray-900 text-white px-8 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors shadow-lg"
+                    class="bg-gray-900 text-white px-8 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors shadow-lg"
                     @click="tryOnStore.setStepperIndex(1)"
                   >
-                    下一步 <ChevronRight class="w-5 h-5" />
+                    下一步
                   </button>
                 </div>
               </div>
@@ -532,6 +835,15 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                 >
 
                 <div class="flex-1 flex flex-col items-center justify-center min-h-0 py-4">
+                  <div
+                    v-if="handQualityError"
+                    class="mb-3 w-full max-w-md rounded-2xl border border-[#FFB4A8] bg-[#FFF1EF] px-4 py-3 text-sm text-[#A73520] shadow-sm"
+                  >
+                    <p class="font-semibold">手图不适合试戴</p>
+                    <p class="mt-1 leading-relaxed">{{ handQualityError }}</p>
+                    <p class="mt-1 text-xs text-[#A73520]/75">请手背朝上、五指自然张开，完整露出所有指尖后重新上传。</p>
+                  </div>
+
                   <template v-if="!uploadedImageUrl">
                     <div
                       :class="cn(
@@ -668,6 +980,14 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
 
                   <div v-else class="w-full max-w-md aspect-[4/3] rounded-[28px] overflow-hidden relative shadow-lg border border-gray-200 bg-gray-950/5">
                     <img :src="uploadedImageUrl" alt="Uploaded Hand" class="w-full h-full object-contain">
+                    <div
+                      v-if="handQualityChecking"
+                      class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/55 text-white backdrop-blur-sm"
+                    >
+                      <Sparkles class="mb-3 h-7 w-7 animate-pulse text-[#FFD100]" />
+                      <p class="text-sm font-semibold">AI 正在检查手指是否张开</p>
+                      <p class="mt-1 text-xs text-white/70">请稍等，检查通过后才能继续试戴</p>
+                    </div>
                     <div v-if="captureMode === 'camera'" class="hand-preview-mask absolute inset-0 pointer-events-none">
                       <div class="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(0,0,0,0.04),rgba(0,0,0,0.28))]" />
                       <svg
@@ -702,7 +1022,7 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                         <button
                           type="button"
                           class="bg-[#111827]/80 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 border border-white/15 hover:bg-[#111827]"
-                          @click="handleCapture"
+                          @click="handleRetake"
                         >
                           <Camera class="w-4 h-4" /> 重新拍摄
                         </button>
@@ -720,11 +1040,11 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                   </button>
                   <button
                     type="button"
-                    :disabled="!uploadedImageUrl"
-                    class="flex items-center gap-2 bg-gray-900 text-white px-8 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors shadow-lg"
+                    :disabled="!uploadedImageUrl || handQualityChecking"
+                    class="bg-gray-900 text-white px-8 py-3 rounded-xl font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-800 transition-colors shadow-lg"
                     @click="tryOnStore.setStepperIndex(2)"
                   >
-                    下一步 <ChevronRight class="w-5 h-5" />
+                    下一步
                   </button>
                 </div>
               </div>
@@ -749,7 +1069,7 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                         : 'bg-white border-gray-100 hover:bg-[#FFFDF3] hover:border-[#FFD100]/70',
                       focusedStyleId === style.id && 'ring-4 ring-[#FFD100]/30 shadow-[0_0_0_8px_rgba(255,209,0,0.10),0_16px_32px_rgba(255,209,0,0.18)]',
                     )"
-                    @click="tryOnStore.setSelectedStyleId(style.id)"
+                    @click="selectStyle(style.id, 'catalog')"
                   >
                     <div class="pt-7 flex items-start justify-center shrink-0">
                       <div
@@ -833,11 +1153,18 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                     </div>
                   </div>
                   <div class="w-full max-w-xs space-y-3 text-center">
-                    <p class="text-lg font-medium text-gray-700">{{ loadingTexts[loadingStep] }}</p>
+                    <p class="text-lg font-medium text-gray-700">{{ tryOnStatusMessage || loadingTexts[loadingStep] }}</p>
                     <div class="flex items-center justify-between text-[11px] font-mono tracking-[0.12em] text-gray-400">
-                      <span>QWEN-IMAGE-2.0</span>
+                      <span>TRY-ON PIPELINE</span>
                       <span>{{ generationProgress }}%</span>
                     </div>
+                    <button
+                      type="button"
+                      class="mx-auto inline-flex rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-500 transition hover:border-[#FFD100]/60 hover:bg-[#FFFDF3] hover:text-gray-700"
+                      @click="leaveTryOnToBackground"
+                    >
+                      返回并后台继续生成
+                    </button>
                   </div>
                 </div>
 
@@ -882,9 +1209,24 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                         </div>
                       </div>
 
+                      <div class="mb-5 grid grid-cols-3 gap-2.5">
+                        <div class="rounded-2xl bg-white p-3 shadow-sm">
+                          <span class="block text-[11px] text-gray-400">整体美观</span>
+                          <span class="mt-1 block text-xl font-black text-gray-900">{{ tryOnResult?.scoreBreakdown?.fitScore ?? tryOnResult?.score }}</span>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3 shadow-sm">
+                          <span class="block text-[11px] text-gray-400">肤色映衬</span>
+                          <span class="mt-1 block text-xl font-black text-gray-900">{{ tryOnResult?.scoreBreakdown?.brightenScore ?? tryOnResult?.score }}</span>
+                        </div>
+                        <div class="rounded-2xl bg-white p-3 shadow-sm">
+                          <span class="block text-[11px] text-gray-400">气质适配</span>
+                          <span class="mt-1 block text-xl font-black text-gray-900">{{ tryOnResult?.scoreBreakdown?.styleMatchScore ?? tryOnResult?.score }}</span>
+                        </div>
+                      </div>
+
                       <div class="mb-1">
                         <div class="flex items-end justify-between mb-2">
-                          <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-1"><Sparkles class="w-4 h-4 text-[#8B8CF6]" /> 当前款式适配度</h3>
+                          <h3 class="text-sm font-semibold text-gray-900 flex items-center gap-1"><Sparkles class="w-4 h-4 text-[#8B8CF6]" /> AI 审美复评</h3>
                           <span class="text-xs font-medium text-gray-400">{{ tryOnResult?.score }} / 100</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2 mb-4">
@@ -900,7 +1242,7 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                     </div>
                   </div>
 
-                  <div class="mt-8 flex justify-between items-center border-t border-gray-100 pt-6">
+                  <div class="mt-5 flex items-center justify-between border-t border-gray-100 pt-4">
                     <button type="button" class="px-6 py-2.5 rounded-xl font-medium text-gray-600 hover:bg-gray-100 transition-colors" @click="tryOnStore.setStepperIndex(2)">
                       换个款式
                     </button>
@@ -909,13 +1251,13 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                       class="flex items-center gap-2 bg-gray-900 text-white px-8 py-3 rounded-xl font-medium transition-transform hover:scale-105 shadow-lg"
                       @click="tryOnStore.setStepperIndex(4)"
                     >
-                      查看更好适配 &amp; 预约 <ChevronRight class="w-5 h-5" />
+                      智能推荐&amp;预约 <ChevronRight class="w-5 h-5" />
                     </button>
                   </div>
                 </template>
               </div>
 
-              <div v-else class="flex flex-col h-full">
+              <div v-else class="flex flex-col h-full min-h-0">
                 <div v-if="success" class="h-full flex flex-col items-center justify-center space-y-4">
                   <div class="w-20 h-20 bg-green-100 text-green-500 rounded-full flex items-center justify-center">
                     <Check class="w-10 h-10" />
@@ -926,57 +1268,119 @@ const handPalmPath = 'M102 210 C120 240 153 253 191 247 C229 241 258 216 270 180
                 </div>
 
                 <template v-else>
-                  <div class="mb-6">
-                    <h2 class="text-2xl font-bold text-gray-900 mb-2">为您推荐更高适配款式</h2>
-                    <p class="text-gray-500">根据 AI 分析，以下款式更符合您的手部特征</p>
-                  </div>
-
-                  <div class="space-y-4 mb-8 flex-1 overflow-y-auto pr-2">
-                    <div
-                      v-for="rec in recommendationsList()"
-                      :key="rec.id"
-                      class="flex gap-4 p-4 rounded-2xl border border-pink-100 bg-white hover:border-pink-300 transition-colors shadow-sm items-center"
-                    >
-                      <img :src="rec.img" class="w-20 h-20 object-cover rounded-xl shrink-0 border border-gray-100" :alt="rec.name">
-                      <div class="flex-1">
-                        <div class="flex justify-between items-start mb-1">
-                          <h3 class="font-bold text-gray-900 text-lg">{{ rec.name }}</h3>
-                          <span class="bg-[#FFF8D6] text-[#B89600] px-2 py-0.5 rounded-lg text-xs font-bold border border-[#FFD100]/30 shadow-sm whitespace-nowrap">
-                            适配 {{ rec.score }}
-                          </span>
+                  <div class="flex-1 min-h-0 overflow-y-auto pr-1">
+                    <div class="mb-4 rounded-[28px] border border-[#FFD100]/30 bg-[linear-gradient(180deg,#FFFDF3_0%,#FFFFFF_100%)] px-5 py-5 shadow-[0_14px_34px_rgba(255,209,0,0.10)]">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#B89600]">SMART MATCH</p>
+                          <h2 class="mt-2 text-[25px] font-black leading-tight text-gray-950">智能推荐&amp;预约</h2>
                         </div>
-                        <p class="text-sm text-gray-500">{{ rec.reason }}</p>
+                        <div class="shrink-0 rounded-2xl bg-white px-3 py-2 text-right shadow-sm">
+                          <span class="block text-[10px] font-medium uppercase tracking-[0.14em] text-gray-400">Top Pick</span>
+                          <span class="mt-1 block text-lg font-black text-gray-900">{{ topRecommendation?.score ?? tryOnResult?.score }}分</span>
+                        </div>
                       </div>
-                      <button type="button" class="px-4 py-2 border border-[#FFD100] text-[#B89600] text-sm font-medium rounded-xl hover:bg-[#FFF8D6] transition-colors shrink-0 whitespace-nowrap">
-                        试戴此款
-                      </button>
-                    </div>
-                  </div>
 
-                  <div class="bg-[#FFFDF7] rounded-2xl border border-[#FFD100]/30 p-6 flex flex-col items-center gap-6 shadow-sm relative overflow-hidden">
-                    <div class="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[#FFD100]/20 to-transparent rounded-bl-full -z-10" />
-
-                    <div class="flex-1">
-                      <div class="flex items-center gap-2 mb-2">
-                        <h3 class="font-bold text-lg text-gray-900">Lisa 美甲工作室</h3>
-                        <span class="flex items-center text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-medium"><Star class="w-3 h-3 mr-0.5 fill-current" /> 4.8</span>
-                      </div>
-                      <div class="flex items-center gap-4 text-sm text-gray-600">
-                        <span class="flex items-center gap-1"><MapPin class="w-4 h-4" /> 距离 1.2km</span>
-                        <span class="flex items-center gap-1"><Calendar class="w-4 h-4" /> 今天可约: 16:00 / 18:00</span>
+                      <div class="mt-4 rounded-2xl border border-white/80 bg-white/90 px-4 py-3 shadow-sm">
+                        <p class="text-sm leading-7 text-gray-600">
+                          <span class="font-semibold text-gray-900">{{ topRecommendation?.name ?? '这组推荐' }}</span>
+                          <span class="mx-1 text-[#B89600]">更衬你</span>
+                          <span>小团综合了这次试戴效果、肤色映衬和手型气质，优先帮你挑了几款上手更顺眼、也更容易显手白的选择。</span>
+                        </p>
                       </div>
                     </div>
-                    <div class="flex flex-col items-end gap-2 shrink-0">
-                      <div class="text-xl font-bold text-gray-900">129<span class="text-sm font-normal text-gray-500">元起</span></div>
-                      <button
-                        type="button"
-                        :disabled="booking"
-                        class="w-full bg-gray-900 text-[#FFD100] px-8 py-3 rounded-xl font-medium hover:bg-gray-800 transition-colors shadow-md flex items-center justify-center min-w-[120px]"
-                        @click="handleBook"
+
+                    <div class="space-y-3.5">
+                      <div
+                        v-for="rec in recommendationsList()"
+                        :key="rec.id"
+                        class="rounded-[26px] border border-[#FFE9A6] bg-white p-3 shadow-[0_10px_26px_rgba(15,23,42,0.06)] transition-all hover:border-[#FFD100]/70 hover:shadow-[0_14px_30px_rgba(255,209,0,0.12)]"
                       >
-                        <div v-if="booking" class="w-5 h-5 border-2 border-[#FFD100] border-t-transparent rounded-full animate-spin" />
-                        <span v-else>模拟预约</span>
-                      </button>
+                        <div class="flex gap-3.5">
+                          <img :src="rec.img" class="h-[90px] w-[90px] rounded-[20px] border border-gray-100 object-cover shadow-sm shrink-0" :alt="rec.name">
+                          <div class="min-w-0 flex-1">
+                            <div class="flex items-start justify-between gap-3">
+                              <div class="min-w-0">
+                                <div class="flex items-center gap-2">
+                                  <span class="rounded-full bg-[#FFF5C7] px-2 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[#A77A00]">
+                                    {{ rec === topRecommendation ? 'AI 首推' : '候选推荐' }}
+                                  </span>
+                                  <span class="text-[11px] text-gray-400">适配 {{ rec.score }} 分</span>
+                                </div>
+                                <h3 class="mt-2 text-[18px] font-black leading-[1.25] text-gray-950">{{ rec.name }}</h3>
+                              </div>
+
+                              <div class="shrink-0 rounded-2xl border border-[#FFD100]/35 bg-[#FFFBE5] px-3 py-2 text-center shadow-sm">
+                                <span class="block text-[10px] uppercase tracking-[0.16em] text-[#B89600]">MATCH</span>
+                                <span class="mt-1 block text-lg font-black text-gray-900">{{ rec.score }}</span>
+                              </div>
+                            </div>
+
+                            <p class="mt-3 text-[13px] leading-6 text-gray-600">
+                              {{ rec.reason }}
+                            </p>
+
+                            <div class="mt-3 flex items-center justify-between gap-3">
+                              <p class="text-[12px] leading-5 text-gray-400">
+                                更适合直接上手、也更容易拍出好看的试戴效果。
+                              </p>
+                              <button
+                                type="button"
+                                class="shrink-0 rounded-full border border-[#FFD100]/70 bg-[#FFF9D8] px-4 py-2 text-[12px] font-semibold text-[#8C6A00] transition hover:bg-[#FFD100] hover:text-gray-900"
+                                @click="handleRecommendationTryOn(rec.id)"
+                              >
+                                试戴这款
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="relative mt-4 overflow-hidden rounded-[28px] border border-[#FFD100]/30 bg-[#FFFDF7] p-5 shadow-sm">
+                      <div class="absolute right-0 top-0 h-32 w-32 rounded-bl-full bg-gradient-to-br from-[#FFD100]/18 to-transparent" />
+
+                      <div class="relative flex flex-col gap-5">
+                        <div>
+                          <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#B89600]">STORE READY</p>
+                          <div class="mt-2 flex items-center gap-2">
+                            <h3 class="text-xl font-black text-gray-950">Lisa 美甲工作室</h3>
+                            <span class="flex items-center rounded-full bg-orange-100 px-2 py-1 text-[11px] font-semibold text-orange-600">
+                              <Star class="mr-1 h-3 w-3 fill-current" /> 4.8
+                            </span>
+                          </div>
+                          <p class="mt-2 text-sm leading-6 text-gray-500">
+                            款式已经帮你挑好了，如果想直接到店，也可以按下面的时间模拟预约。
+                          </p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                          <div class="rounded-2xl bg-white px-4 py-3 shadow-sm">
+                            <span class="flex items-center gap-1 text-gray-400"><MapPin class="h-4 w-4" /> 距离</span>
+                            <p class="mt-1 font-semibold text-gray-900">1.2km，路上很顺</p>
+                          </div>
+                          <div class="rounded-2xl bg-white px-4 py-3 shadow-sm">
+                            <span class="flex items-center gap-1 text-gray-400"><Calendar class="h-4 w-4" /> 可约时段</span>
+                            <p class="mt-1 font-semibold text-gray-900">今天 16:00 / 18:00</p>
+                          </div>
+                        </div>
+
+                        <div class="flex items-center justify-between gap-4 rounded-2xl bg-white px-4 py-4 shadow-sm">
+                          <div>
+                            <p class="text-[12px] text-gray-400">到店体验</p>
+                            <div class="mt-1 text-2xl font-black text-gray-950">129<span class="ml-1 text-sm font-normal text-gray-500">元起</span></div>
+                          </div>
+                          <button
+                            type="button"
+                            :disabled="booking"
+                            class="flex min-w-[124px] items-center justify-center rounded-2xl bg-gray-900 px-6 py-3 font-medium text-[#FFD100] shadow-md transition-colors hover:bg-gray-800"
+                            @click="handleBook"
+                          >
+                            <div v-if="booking" class="h-5 w-5 rounded-full border-2 border-[#FFD100] border-t-transparent animate-spin" />
+                            <span v-else>模拟预约</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </template>
