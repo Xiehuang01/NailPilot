@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, onMounted, ref} from 'vue';
 import {storeToRefs} from 'pinia';
+import {ElMessage} from 'element-plus';
 import {
   Activity,
   FileText,
@@ -11,6 +12,7 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-vue-next';
+import {marked} from 'marked';
 import {generateAgentReport} from '@/api';
 import AreaTrendChart from '@/components/charts/AreaTrendChart.vue';
 import DonutChart from '@/components/charts/DonutChart.vue';
@@ -18,10 +20,12 @@ import {cn} from '@/lib/utils';
 import {useMerchantStore} from '@/stores/merchant';
 
 const merchantStore = useMerchantStore();
-const {agentReports, dashboardData, isLoadingDashboard} = storeToRefs(merchantStore);
+const {agentReports, dashboardData, isLoadingDashboard, loadError, rankingData, suggestions, userPreferences} = storeToRefs(merchantStore);
 
 const hoveredCardIndex = ref<number | null>(null);
 const selectedStyleId = ref<number | null>(null);
+
+const renderMarkdown = (text: string) => marked.parse(text) as string;
 
 const isShrunk = (index: number) => hoveredCardIndex.value !== null && hoveredCardIndex.value !== index;
 const isExpanded = (index: number) => hoveredCardIndex.value === index;
@@ -47,70 +51,103 @@ const reportActions = [
 
 const pieColors = ['#FFD100', '#FCD34D', '#FDE68A', '#FFFBEB'];
 
+const getWeeklyComparison = (metricName: string) =>
+  dashboardData.value?.weeklyComparison.find((item) => item.metricName === metricName);
+
+const getMetricChange = (metricName: string) => {
+  const metric = getWeeklyComparison(metricName);
+  const value = metric ? Math.round(Math.abs(Number.parseFloat(metric.changePercentage))) : 0;
+  return {
+    value,
+    trend: metric?.trend === 'down' ? 'down' : 'up',
+  };
+};
+
 const metricCards = computed(() => {
   if (!dashboardData.value) {
     return [];
   }
 
   return [
-    {title: '总浏览量', value: dashboardData.value.totalViews, unit: '次', icon: Users, color: 'bg-blue-50 text-blue-500', change: {value: 8, trend: 'up'}, insight: '浏览量持续攀升，较上周同期增长16%'},
-    {title: 'AI 试戴量', value: dashboardData.value.tryOnVolume, unit: '次', icon: Sparkles, color: 'bg-pink-50 text-pink-500', change: {value: 12, trend: 'up'}, insight: 'AI试戴需求旺盛，推荐效果显著'},
-    {title: '收藏量', value: dashboardData.value.favoriteVolume, unit: '次', icon: Target, color: 'bg-red-50 text-red-500', change: {value: 3, trend: 'down'}, insight: '收藏量略有回落，建议优化主页款式排序'},
-    {title: '预约量', value: dashboardData.value.bookingVolume, unit: '单', icon: Users, color: 'bg-green-50 text-green-500', change: {value: 5, trend: 'up'}, insight: '预约转化稳步提升，周末预约量集中'},
+    {
+      title: '款式选中量',
+      value: dashboardData.value.totalViews,
+      unit: '次',
+      icon: Users,
+      color: 'bg-blue-50 text-blue-500',
+      change: getMetricChange('views'),
+      insight: `近一周款式累计被选中 ${dashboardData.value.totalViews.toLocaleString()} 次，当前热度第一是 ${dashboardData.value.topStyle}`,
+    },
+    {
+      title: 'AI 试戴量',
+      value: dashboardData.value.tryOnVolume,
+      unit: '次',
+      icon: Sparkles,
+      color: 'bg-pink-50 text-pink-500',
+      change: getMetricChange('try_ons'),
+      insight: `近一周完成 ${dashboardData.value.tryOnVolume.toLocaleString()} 次试戴，今天新增 ${dashboardData.value.todayTryOn} 次`,
+    },
+    {
+      title: '收藏意向量',
+      value: dashboardData.value.favoriteVolume,
+      unit: '次',
+      icon: Target,
+      color: 'bg-red-50 text-red-500',
+      change: getMetricChange('favorites'),
+      insight: `当前收藏意向累计 ${dashboardData.value.favoriteVolume.toLocaleString()} 次，可重点承接高意向用户`,
+    },
+    {
+      title: '预约量',
+      value: dashboardData.value.bookingVolume,
+      unit: '单',
+      icon: Users,
+      color: 'bg-green-50 text-green-500',
+      change: getMetricChange('bookings'),
+      insight: `累计预约 ${dashboardData.value.bookingVolume.toLocaleString()} 单，试戴到预约转化率 ${dashboardData.value.tryOnToBookingRate}`,
+    },
   ];
 });
 
 onMounted(async () => {
-  await merchantStore.fetchDashboard();
-  if (dashboardData.value?.styleStats.length) {
-    selectedStyleId.value = dashboardData.value.styleStats[0].id;
+  try {
+    await merchantStore.fetchDashboard();
+    if (dashboardData.value?.styleStats.length) {
+      selectedStyleId.value = dashboardData.value.styleStats[0].id;
+    }
+  } catch {
+    ElMessage.error('商家数据加载失败，请确认后端服务和数据库已启动');
   }
 });
 
-const selectedTrendData = computed(() => {
-  if (!dashboardData.value) return [];
-  const base = dashboardData.value.trendData;
-  if (!selectedStyleId.value) return base;
-  const style = dashboardData.value.styleStats.find(s => s.id === selectedStyleId.value);
-  if (!style) return base;
-  // 用 style.id 做种子，生成每条不同形状的趋势曲线
-  const seed = style.id;
-  const baseValues = [50, 65, 92, 78, 88, 105, 90];
-  const baseRange = style.tryOns / 10;
-  return base.map((d, i) => {
-    const offset = Math.sin((seed + i * 3) * 1.2) * baseRange * 0.2;
-    const trend = ((seed * 7 + i * 13) % 5) * baseRange * 0.06;
-    const val = Math.round(baseValues[i] + ((seed * 3 + i * 7) % 10) * (baseRange / 12) + offset + trend);
-    return { ...d, tryOns: Math.max(5, val) };
-  });
-});
-
-const selectedSkinToneData = computed(() => {
-  if (!dashboardData.value) return [];
-  if (!selectedStyleId.value) return dashboardData.value.skinToneData;
-  const style = dashboardData.value.styleStats.find(s => s.id === selectedStyleId.value);
-  if (!style) return dashboardData.value.skinToneData;
-  const s = style.id;
-  return [
-    { name: '暖黄皮', value: 35 + (s % 3) * 5 },
-    { name: '冷白皮', value: 25 + ((s * 2) % 3) * 5 },
-    { name: '中性皮', value: 20 + ((s * 3) % 3) * 3 },
-    { name: '橄榄皮', value: 10 + ((s * 5) % 3) * 3 },
-  ];
-});
+const selectedTrendData = computed(() => dashboardData.value?.trendData ?? []);
+const selectedSkinToneData = computed(() => dashboardData.value?.skinToneData ?? []);
+const selectedStyleRanking = computed(() =>
+  rankingData.value.find((item) => item.styleId === selectedStyleId.value) ?? null,
+);
+const topPreferenceRows = computed(() => ({
+  handShapes: userPreferences.value.handShapes.slice(0, 3),
+  tags: userPreferences.value.tags.slice(0, 4),
+  priceRanges: userPreferences.value.priceRanges.slice(0, 3),
+}));
+const topSuggestions = computed(() => suggestions.value.slice(0, 3));
 
 const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
   reportLoading.value[type] = true;
-  const report = await generateAgentReport(type);
-  reportLoading.value[type] = false;
-  merchantStore.addAgentReport(report);
+  try {
+    const report = await generateAgentReport(type);
+    merchantStore.addAgentReport(report);
+  } catch {
+    ElMessage.error('报告生成失败，请检查 OpenClaw 和后端服务');
+  } finally {
+    reportLoading.value[type] = false;
+  }
 };
 </script>
 
 <template>
   <div v-if="isLoadingDashboard || !dashboardData" class="flex-1 flex flex-col items-center justify-center">
     <div class="w-12 h-12 border-4 border-gray-200 border-t-[#FFD100] rounded-full animate-spin" />
-    <p class="mt-4 text-gray-500 font-medium">正在加载商家数据看板...</p>
+    <p class="mt-4 text-gray-500 font-medium">{{ loadError || '正在加载商家数据看板...' }}</p>
   </div>
 
   <div v-else class="flex flex-col h-full gap-6">
@@ -146,7 +183,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
       </div>
     </div>
 
-    <div class="grid lg:grid-cols-[1fr_380px] gap-6 flex-1 items-start min-h-0">
+    <div class="grid lg:grid-cols-[1fr_460px] gap-6 flex-1 items-start min-h-0">
       <el-scrollbar class="h-full">
         <div class="space-y-6 flex flex-col h-full pr-2 pb-4">
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 w-full transition-[grid-template-columns] duration-500 ease-in-out" :style="cardGridStyle" @mouseleave="hoveredCardIndex = null">
@@ -218,7 +255,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                 </div>
                 <div>
                   <h3 class="font-bold text-gray-900 text-base leading-none">款式运营看板</h3>
-                  <p class="text-xs text-gray-400 mt-0.5">实时监控各款式核心运营数据</p>
+                  <p class="text-xs text-gray-400 mt-0.5">直接读取用户端同一套商品的选款、试戴与预约数据</p>
                 </div>
               </div>
               <div class="overflow-x-auto pb-4 max-h-[320px] overflow-y-auto">
@@ -226,7 +263,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <thead class="text-xs text-gray-500 uppercase bg-gray-50">
                     <tr>
                       <th class="px-4 py-3 rounded-l-lg">款式名</th>
-                      <th class="px-4 py-3 text-right">浏览量</th>
+                      <th class="px-4 py-3 text-right">选中量</th>
                       <th class="px-4 py-3 text-right">试戴量</th>
                       <th class="px-4 py-3 text-right">转化率</th>
                       <th class="px-4 py-3 rounded-r-lg w-[40%]">AI 运营建议</th>
@@ -240,7 +277,25 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                       :class="selectedStyleId === style.id ? 'bg-[#FFFDF7]' : 'hover:bg-gray-50/50'"
                       @click="selectedStyleId = style.id"
                     >
-                      <td class="px-4 py-4 font-medium text-gray-900">{{ style.name }}</td>
+                      <td class="px-4 py-4">
+                        <div class="flex items-center gap-2">
+                          <span
+                            v-if="rankingData.find((item) => item.styleId === style.id)"
+                            class="inline-flex min-w-9 items-center justify-center rounded-full bg-[#FFF6D5] px-2 py-1 text-[11px] font-bold text-[#B89600]"
+                          >
+                            #{{ rankingData.find((item) => item.styleId === style.id)?.currentRank }}
+                          </span>
+                          <div>
+                            <div class="font-medium text-gray-900">{{ style.name }}</div>
+                            <div
+                              v-if="rankingData.find((item) => item.styleId === style.id)"
+                              class="text-[11px] text-gray-400"
+                            >
+                              综合分 {{ rankingData.find((item) => item.styleId === style.id)?.compositeScore }}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
                       <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.views }}</td>
                       <td class="px-4 py-4 font-mono text-[#B89600] text-right font-medium">{{ style.tryOns }}</td>
                       <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.conversion }}</td>
@@ -262,8 +317,8 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <Target class="w-4 h-4 text-[#B89600]" />
                 </div>
                 <div>
-                  <h3 class="font-bold text-gray-900 text-base leading-none">各肤色用户偏好分布</h3>
-                  <p class="text-xs text-gray-400 mt-0.5">各肤色用户在不同款式中的偏好占比</p>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">近期试戴用户肤色分布</h3>
+                  <p class="text-xs text-gray-400 mt-0.5">来自真实试戴事件的肤色标签统计</p>
                 </div>
               </div>
               <DonutChart :data="selectedSkinToneData" :colors="pieColors" />
@@ -281,11 +336,99 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <TrendingUp class="w-4 h-4 text-[#B89600]" />
                 </div>
                 <div>
-                  <h3 class="font-bold text-gray-900 text-base leading-none">最近7天试戴趋势</h3>
-                  <p class="text-xs text-gray-400 mt-0.5">近7日试戴数据走势</p>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">店铺最近 7 天试戴趋势</h3>
+                  <p class="text-xs text-gray-400 mt-0.5">来自真实试戴事件的日级走势</p>
                 </div>
               </div>
               <AreaTrendChart :data="selectedTrendData" />
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <div class="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">高频用户偏好</h3>
+                  <p class="text-xs text-gray-400 mt-0.5">来自用户端真实试戴与选款标签</p>
+                </div>
+                <div
+                  v-if="selectedStyleRanking"
+                  class="rounded-2xl border border-[#FFD100]/30 bg-[#FFFDF7] px-3 py-2 text-right"
+                >
+                  <div class="text-[11px] font-semibold tracking-[0.24em] text-[#B89600]">TOP STYLE</div>
+                  <div class="mt-1 text-lg font-black text-gray-900">#{{ selectedStyleRanking.currentRank }}</div>
+                </div>
+              </div>
+              <div class="space-y-4">
+                <div>
+                  <p class="text-xs font-semibold text-gray-400">热门标签</p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <span
+                      v-for="item in topPreferenceRows.tags"
+                      :key="item.label"
+                      class="inline-flex items-center gap-1 rounded-full border border-[#FFD100]/25 bg-[#FFFDF7] px-3 py-1 text-xs text-gray-700"
+                    >
+                      {{ item.label }}
+                      <span class="font-semibold text-[#B89600]">{{ item.percentage }}</span>
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-gray-400">主流手型</p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <span
+                      v-for="item in topPreferenceRows.handShapes"
+                      :key="item.label"
+                      class="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600"
+                    >
+                      {{ item.label }}
+                      <span class="font-semibold text-gray-900">{{ item.percentage }}</span>
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-gray-400">主流客单带</p>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <span
+                      v-for="item in topPreferenceRows.priceRanges"
+                      :key="item.label"
+                      class="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs text-gray-600"
+                    >
+                      {{ item.label }}
+                      <span class="font-semibold text-gray-900">{{ item.percentage }}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
+              <div class="flex items-center gap-3 mb-4">
+                <div class="w-9 h-9 rounded-xl bg-[#FFFDF7] border border-[#FFD100]/30 flex items-center justify-center">
+                  <Sparkles class="w-4 h-4 text-[#B89600]" />
+                </div>
+                <div>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">当前转化建议</h3>
+                  <p class="text-xs text-gray-400 mt-0.5">由后端建议库直接返回，方便商家快速决策</p>
+                </div>
+              </div>
+              <div class="space-y-3">
+                <div
+                  v-for="item in topSuggestions"
+                  :key="item.id"
+                  class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="text-sm font-semibold text-gray-900">{{ item.title }}</div>
+                    <span
+                      class="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                      :class="item.priority === 'high' ? 'bg-red-50 text-red-500' : item.priority === 'medium' ? 'bg-amber-50 text-amber-600' : 'bg-gray-100 text-gray-500'"
+                    >
+                      {{ item.priority === 'high' ? '高优先' : item.priority === 'medium' ? '中优先' : '低优先' }}
+                    </span>
+                  </div>
+                  <p class="mt-2 text-sm leading-6 text-gray-600">{{ item.suggestion }}</p>
+                  <p class="mt-2 text-xs font-medium text-[#B89600]">{{ item.expectedImpact }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -303,30 +446,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
           </div>
         </div>
 
-        <el-scrollbar class="flex-1 min-h-0">
-          <div class="p-4 bg-gray-50 min-h-full space-y-4">
-            <TransitionGroup name="chat-rise" tag="div" class="space-y-4">
-              <div v-for="report in agentReports" :key="`${report.title}-${report.content}`" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-                <div class="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
-                  <div class="w-2 h-2 rounded-full bg-purple-500" />
-                  {{ report.title }}
-                </div>
-                <div class="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100">
-                  {{ report.content }}
-                </div>
-              </div>
-            </TransitionGroup>
-
-            <div v-if="agentReports.length === 0" class="text-center py-10">
-              <div class="w-12 h-12 bg-white rounded-full mx-auto flex items-center justify-center mb-3 shadow-sm border border-gray-100">
-                <MessageSquare class="w-5 h-5 text-gray-400" />
-              </div>
-              <p class="text-sm text-gray-500">点击下方按钮，生成智能决策报告</p>
-            </div>
-          </div>
-        </el-scrollbar>
-
-        <div class="p-4 bg-white border-t border-gray-100">
+        <div class="p-4 bg-white border-b border-gray-100">
           <div class="grid grid-cols-1 gap-2">
             <button
               v-for="action in reportActions"
@@ -353,7 +473,44 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
             </button>
           </div>
         </div>
+
+        <el-scrollbar class="flex-1 min-h-0">
+          <div class="p-4 bg-gray-50 min-h-full space-y-4">
+            <TransitionGroup name="chat-rise" tag="div" class="space-y-4">
+              <div v-for="report in agentReports" :key="`${report.title}-${report.content}`" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                <div class="font-bold text-gray-900 mb-2 flex items-center gap-2 text-sm">
+                  <div class="w-2 h-2 rounded-full bg-purple-500" />
+                  {{ report.title }}
+                </div>
+                <div class="text-sm text-gray-600 leading-relaxed bg-gray-50 p-3 rounded-xl border border-gray-100 markdown-body" v-html="renderMarkdown(report.content)" />
+              </div>
+            </TransitionGroup>
+
+            <div v-if="agentReports.length === 0" class="text-center py-10">
+              <div class="w-12 h-12 bg-white rounded-full mx-auto flex items-center justify-center mb-3 shadow-sm border border-gray-100">
+                <MessageSquare class="w-5 h-5 text-gray-400" />
+              </div>
+              <p class="text-sm text-gray-500">点击上方按钮，生成智能决策报告</p>
+            </div>
+          </div>
+        </el-scrollbar>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.markdown-body :deep(h1) { font-size: 1.25rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #111827; }
+.markdown-body :deep(h2) { font-size: 1.1rem; font-weight: 700; margin: 0.75rem 0 0.5rem; color: #111827; }
+.markdown-body :deep(h3) { font-size: 1rem; font-weight: 600; margin: 0.75rem 0 0.25rem; color: #1f2937; }
+.markdown-body :deep(p) { margin: 0.25rem 0; }
+.markdown-body :deep(ul), .markdown-body :deep(ol) { padding-left: 1.5rem; margin: 0.25rem 0; }
+.markdown-body :deep(li) { margin: 0.125rem 0; }
+.markdown-body :deep(table) { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.8125rem; }
+.markdown-body :deep(th) { background: #f3f4f6; padding: 0.375rem 0.5rem; text-align: left; font-weight: 600; border: 1px solid #e5e7eb; }
+.markdown-body :deep(td) { padding: 0.25rem 0.5rem; border: 1px solid #e5e7eb; }
+.markdown-body :deep(strong) { font-weight: 600; color: #111827; }
+.markdown-body :deep(hr) { border: none; border-top: 1px solid #e5e7eb; margin: 0.75rem 0; }
+.markdown-body :deep(code) { background: #f3f4f6; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.8125rem; }
+.markdown-body :deep(blockquote) { border-left: 3px solid #a78bfa; padding-left: 0.75rem; margin: 0.5rem 0; color: #6b7280; }
+</style>

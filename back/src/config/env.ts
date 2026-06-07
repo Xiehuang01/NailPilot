@@ -23,4 +23,7 @@ export const env = {
   QWEN_MODEL: process.env.QWEN_MODEL ?? 'qwen3.6-plus',
   QWEN_IMAGE_MODEL: process.env.QWEN_IMAGE_MODEL ?? 'wan2.7-image',
   AGENT_MAX_LOOPS: Number.parseInt(process.env.AGENT_MAX_LOOPS ?? '4', 10),
+  OPENCLAW_BIN: process.env.OPENCLAW_BIN ?? 'openclaw',
+  OPENCLAW_LOCAL: process.env.OPENCLAW_LOCAL !== 'false',
+  OPENCLAW_TIMEOUT_SECONDS: Number.parseInt(process.env.OPENCLAW_TIMEOUT_SECONDS ?? '60', 10),
 };

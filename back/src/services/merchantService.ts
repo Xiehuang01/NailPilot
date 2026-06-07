@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { RowDataPacket } from 'mysql2';
+import { env } from '../config/env.js';
 import { getDb } from '../config/db.js';
 
 const execFileAsync = promisify(execFile);
@@ -59,6 +60,11 @@ type TryOnToneRow = RowDataPacket & {
 type TryOnTrendRow = RowDataPacket & {
   day: string;
   try_ons: number;
+};
+
+type BookingSummaryRow = RowDataPacket & {
+  booking_volume: number;
+  today_bookings: number;
 };
 
 type StyleSelectionRow = RowDataPacket & {
@@ -150,9 +156,10 @@ export const getDashboard = async () => {
   `);
 
   const [styleStats] = await db.query<StyleStatRow[]>(`
-    SELECT id, name, views, try_ons, favorites, bookings, conversion, advice
-    FROM merchant_style_stats
-    ORDER BY views DESC, id ASC
+    SELECT stats.id, styles.name, stats.views, stats.try_ons, stats.favorites, stats.bookings, stats.conversion, stats.advice
+    FROM merchant_style_stats stats
+    INNER JOIN styles ON styles.id = stats.id
+    ORDER BY stats.views DESC, stats.id ASC
   `);
 
   const [trendData] = await db.query<TrendRow[]>(`
@@ -177,6 +184,7 @@ export const getDashboard = async () => {
   let eventSkinTones: TryOnToneRow[] = [];
   let eventTrends: TryOnTrendRow[] = [];
   let selectionRows: StyleSelectionRow[] = [];
+  let bookingSummary: BookingSummaryRow | undefined;
   let bookingTimes: BookingTimeRow[] = [];
   let weeklyComparison: WeeklyComparisonRow[] = [];
 
@@ -217,8 +225,17 @@ export const getDashboard = async () => {
     [selectionRows] = await db.query<StyleSelectionRow[]>(`
       SELECT style_id, COUNT(*) AS selections
       FROM style_selection_events
+      WHERE source <> 'history_restore'
       GROUP BY style_id
       ORDER BY selections DESC, style_id ASC
+    `);
+
+    [[bookingSummary]] = await db.query<BookingSummaryRow[]>(`
+      SELECT
+        COUNT(*) AS booking_volume,
+        SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS today_bookings
+      FROM bookings
+      WHERE status <> 'cancelled'
     `);
 
     [bookingTimes] = await db.query<BookingTimeRow[]>(`
@@ -305,9 +322,10 @@ export const getDashboard = async () => {
   const bookingMap = new Map(bookingRows.map((row) => [row.style_id, row.bookings]));
   const tryOnMap = new Map(eventStyles.map((row) => [row.style_id, row]));
   const selectionMap = new Map(selectionRows.map((row) => [row.style_id, row.selections]));
-  const topStyleId = eventStyles[0]?.style_id;
+  const topStyleId = eventStyles[0]?.style_id ?? selectionRows[0]?.style_id;
   const topStyleName =
     eventStyles[0]?.style_name ??
+    styleSeedMap.get(selectionRows[0]?.style_id ?? -1)?.name ??
     styleSeedMap.get(topStyleId ?? -1)?.name ??
     styleStats.find((row) => row.id === topStyleId)?.name ??
     summary.top_style;
@@ -361,16 +379,18 @@ export const getDashboard = async () => {
       }))
     : skinToneData;
   const tryOnVolume = eventSummary?.try_on_volume ?? 0;
-  const bookingVolume = summary.booking_volume;
+  const totalViews = selectionRows.reduce((sum, row) => sum + row.selections, 0) || summary.total_views;
+  const bookingVolume = bookingSummary?.booking_volume ?? summary.booking_volume;
   const todayTryOn = eventSummary?.today_try_ons ?? 0;
+  const todayBooking = bookingSummary?.today_bookings ?? summary.today_booking;
 
   return {
     shopName: summary.shop_name,
     todayTryOn,
-    todayBooking: summary.today_booking,
-    conversionRate: formatRate(summary.today_booking, todayTryOn),
+    todayBooking,
+    conversionRate: formatRate(todayBooking, todayTryOn),
     topStyle: topStyleName,
-    totalViews: summary.total_views,
+    totalViews,
     tryOnVolume,
     favoriteVolume: summary.favorite_volume,
     bookingVolume,
@@ -378,7 +398,7 @@ export const getDashboard = async () => {
     styleStats: dynamicStyleStats,
     trendData: dynamicTrendData,
     funnelData: [
-      { name: '浏览', value: summary.total_views },
+      { name: '选款', value: totalViews },
       { name: '试戴', value: tryOnVolume },
       { name: '收藏', value: summary.favorite_volume },
       { name: '预约', value: bookingVolume },
@@ -406,10 +426,11 @@ export const getStyleRanking = async () => {
   const db = getDb();
 
   const [ranking] = await db.query<StyleRankingRow[]>(`
-    SELECT style_id, name, current_rank, previous_rank, trend, composite_score,
-           views, try_ons, favorites, bookings, conversion_rate
-    FROM merchant_style_ranking
-    ORDER BY sort_order ASC
+    SELECT ranking.style_id, styles.name, ranking.current_rank, ranking.previous_rank, ranking.trend, ranking.composite_score,
+           ranking.views, ranking.try_ons, ranking.favorites, ranking.bookings, ranking.conversion_rate
+    FROM merchant_style_ranking ranking
+    INNER JOIN styles ON styles.id = ranking.style_id
+    ORDER BY ranking.sort_order ASC
   `);
 
   return ranking.map((row) => ({
@@ -573,36 +594,53 @@ const searchNailTrends = async (): Promise<string> => {
 
 // --------------- OpenClaw integration ---------------
 
-const OPENCLAW_TIMEOUT_MS = 90_000;
+const OPENCLAW_TIMEOUT_MS = env.OPENCLAW_TIMEOUT_SECONDS * 1_000 + 30_000;
 
-const callOpenClawAgent = async (prompt: string): Promise<string | null> => {
-  try {
-    const { stdout } = await execFileAsync('openclaw', [
-      'agent',
-      '--json',
-      '--timeout',
-      '60',
-      '--message',
-      prompt,
-    ], {
-      timeout: OPENCLAW_TIMEOUT_MS,
-      maxBuffer: 1024 * 1024, // 1 MB
+const callOpenClawAgent = async (prompt: string): Promise<string> => {
+  const args = [
+    'agent',
+    '--agent', 'main',
+    ...(env.OPENCLAW_LOCAL ? ['--local'] : []),
+    '--json',
+    '--timeout',
+    String(env.OPENCLAW_TIMEOUT_SECONDS),
+    '--message',
+    prompt,
+  ];
+
+  console.log('[商家 Agent][OpenClaw] 开始生成经营报告', {
+    bin: env.OPENCLAW_BIN,
+    mode: env.OPENCLAW_LOCAL ? 'local' : 'gateway',
+    timeoutSeconds: env.OPENCLAW_TIMEOUT_SECONDS,
+    time: new Date().toLocaleString('zh-CN', { hour12: false }),
+  });
+
+  const { stdout } = await execFileAsync(env.OPENCLAW_BIN, args, {
+    timeout: OPENCLAW_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024,
+  });
+
+  const parsed = JSON.parse(stdout) as Record<string, unknown>;
+
+  // openclaw agent --json returns { status, result: { payloads: [{ text }] } }
+  const result = parsed.result as Record<string, unknown> | undefined;
+  const payloads = result?.payloads as Array<{ text?: string }> | undefined;
+  const reply = payloads?.[0]?.text;
+
+  if (typeof reply === 'string' && reply.trim().length > 0) {
+    console.log('[商家 Agent][OpenClaw] 经营报告生成完成', {
+      replyLength: reply.length,
+      time: new Date().toLocaleString('zh-CN', { hour12: false }),
     });
-
-    const parsed = JSON.parse(stdout) as Record<string, unknown>;
-
-    // OpenClaw agent --json returns { ok, reply, ... }
-    const reply = parsed.reply ?? parsed.content ?? parsed.result;
-    if (typeof reply === 'string' && reply.length > 0) {
-      return reply;
-    }
-
-    console.warn('[OpenClaw] unexpected JSON shape:', Object.keys(parsed));
-    return null;
-  } catch (error) {
-    console.warn('[OpenClaw] agent call failed, using template fallback:', (error as Error).message);
-    return null;
+    return reply.trim();
   }
+
+  console.warn('[商家 Agent][OpenClaw] 返回结构异常', {
+    status: parsed.status,
+    keys: Object.keys(parsed),
+    time: new Date().toLocaleString('zh-CN', { hour12: false }),
+  });
+  throw new Error('OpenClaw 返回内容为空或结构不符合预期');
 };
 
 const buildPrompt = async (type: ReportType): Promise<string> => {
@@ -666,8 +704,8 @@ ${dataBlock}
 3. 分析近7天趋势变化，找出峰值和低谷
 4. 给出2-3条结合外部趋势的可执行建议
 
-请严格按以下JSON格式返回，不要加额外文字：
-{"title":"本周趋势日报","content":"你的报告内容在这里"}`;
+请严格按以下JSON格式返回，不要加额外文字，content字段请使用Markdown格式（支持标题、表格、列表、加粗等）：
+{"title":"本周趋势日报","content":"你的Markdown格式报告内容"}`;
 
     case 'strategy':
       return `你是美甲店的AI运营顾问，请基于店铺数据和外部趋势搜索，生成一份「运营策略建议」。
@@ -682,8 +720,8 @@ ${dataBlock}
 4. 根据漏斗数据找出瓶颈，结合外部运营经验给优化方案
 5. 给出3-5条结合外部趋势的具体运营动作
 
-请严格按以下JSON格式返回，不要加额外文字：
-{"title":"运营策略建议","content":"你的报告内容在这里（可换行分条）"}`;
+请严格按以下JSON格式返回，不要加额外文字，content字段请使用Markdown格式（支持标题、表格、列表、加粗等）：
+{"title":"运营策略建议","content":"你的Markdown格式报告内容"}`;
 
     case 'marketing':
       return `你是美甲店的小红书营销专家，请基于店铺数据和外部趋势搜索，生成一份「小红书营销文案」。
@@ -698,8 +736,8 @@ ${dataBlock}
 4. 写Banner/封面文案 + 团购/体验套餐转化文案
 5. 风格严格参考小红书：亲切、有emoji、短句、带话题标签
 
-请严格按以下JSON格式返回，不要加额外文字：
-{"title":"小红书营销文案","content":"你的文案内容在这里"}`;
+请严格按以下JSON格式返回，不要加额外文字，content字段请使用Markdown格式（支持标题、emoji、列表、加粗等小红书风格排版）：
+{"title":"小红书营销文案","content":"你的Markdown格式文案内容"}`;
 
     default:
       return '';
@@ -731,11 +769,18 @@ export const generateReport = async (type = 'trend') => {
   const fallback = reportTemplates[reportType];
 
   const prompt = await buildPrompt(reportType);
-  const reply = await callOpenClawAgent(prompt);
-
-  if (reply) {
+  try {
+    const reply = await callOpenClawAgent(prompt);
     return parseReport(reply, fallback);
-  }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[商家 Agent][OpenClaw] 本地报告生成失败', {
+      error: message,
+      time: new Date().toLocaleString('zh-CN', { hour12: false }),
+    });
 
-  return fallback;
+    const appError = new Error(`OpenClaw 经营报告生成失败：${message}`);
+    (appError as Error & { statusCode?: number }).statusCode = 502;
+    throw appError;
+  }
 };

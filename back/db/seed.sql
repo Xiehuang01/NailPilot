@@ -56,40 +56,203 @@ INSERT INTO recommendations (id, name, score, reason, image_url) VALUES
 (2, '红丝带法式', 90, '设计感明确，适合约会和节日场景', 'http://p0.meituan.net/pilotimages/2ac2d01a9bc78320edbe2b545b485b4a2132292.png'),
 (3, '奶白珍珠新娘甲', 91, '精致度和贵气感强，适合重要场合', 'http://p0.meituan.net/pilotimages/43cc4ced977a3dd271f60ee2f05607772681747.png');
 
+-- 用户端真实行为联通到商家端：选款事件
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 1, 'catalog', CONCAT('seed-sel-1-', n), DATE_SUB(NOW(), INTERVAL MOD(n, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL
+  SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL
+  SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL
+  SELECT 19 UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23 UNION ALL SELECT 24
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 7, 'catalog', CONCAT('seed-sel-7-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 1, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL
+  SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL
+  SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 12, 'ai_recommendation', CONCAT('seed-sel-12-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 2, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL
+  SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL
+  SELECT 13 UNION ALL SELECT 14
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 24, 'catalog', CONCAT('seed-sel-24-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 3, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL
+  SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 2, 'catalog', CONCAT('seed-sel-2-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 4, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL
+  SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 15, 'ai_recommendation', CONCAT('seed-sel-15-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 5, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL
+  SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 20, 'catalog', CONCAT('seed-sel-20-', n), DATE_SUB(NOW(), INTERVAL MOD(n, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL
+  SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 11, 'catalog', CONCAT('seed-sel-11-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 1, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL
+  SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 9, 'ai_recommendation', CONCAT('seed-sel-9-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 2, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+) seq;
+
+INSERT INTO style_selection_events (style_id, source, session_id, created_at)
+SELECT 17, 'catalog', CONCAT('seed-sel-17-', n), DATE_SUB(NOW(), INTERVAL MOD(n + 3, 7) DAY)
+FROM (
+  SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5
+) seq;
+
+-- 用户端真实行为联通到商家端：试戴事件
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+SELECT 1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('通勤显白、适配度高'), DATE_SUB(NOW(), INTERVAL 6 DAY)
+FROM (SELECT 1 AS n UNION ALL SELECT 2) seq;
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(7, 'gptImage2', 1, 92, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('约会氛围感强'), DATE_SUB(NOW(), INTERVAL 6 DAY)),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('婚礼感和精致度高'), DATE_SUB(NOW(), INTERVAL 6 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 93, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('通勤场景稳定显白'), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('节日感较强'), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(24, 'gptImage2', 1, 88, 90, 89, 89, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(6, 21, 9), JSON_ARRAY('高级感明显'), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(2, 'gptImage2', 1, 90, 91, 90, 90, '暖黄皮', '方圆手', '中等甲床', JSON_ARRAY(17, 19, 15), JSON_ARRAY('秋冬显气色'), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('礼服场景适配'), DATE_SUB(NOW(), INTERVAL 5 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('适合日常高频选择'), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('约会场景表现稳定'), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('精致感优秀'), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(15, 'gptImage2', 1, 91, 92, 91, 91, '暖黄皮', '短圆手', '中等甲床', JSON_ARRAY(1, 17, 21), JSON_ARRAY('温柔显手净'), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(20, 'gptImage2', 1, 92, 91, 93, 92, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(7, 11, 18), JSON_ARRAY('节日活力感突出'), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(9, 'gptImage2', 1, 87, 89, 88, 88, '橄榄皮', '细长手', '偏长甲床', JSON_ARRAY(24, 6, 23), JSON_ARRAY('甜酷风格更挑人群'), DATE_SUB(NOW(), INTERVAL 4 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('短甲友好'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('约会用户喜欢'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(24, 'gptImage2', 1, 88, 90, 89, 89, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(6, 21, 9), JSON_ARRAY('高点击但适配门槛更高'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(2, 'gptImage2', 1, 90, 91, 90, 90, '暖黄皮', '方圆手', '中等甲床', JSON_ARRAY(17, 19, 15), JSON_ARRAY('显白偏稳妥'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(15, 'gptImage2', 1, 91, 92, 91, 91, '暖黄皮', '短圆手', '中等甲床', JSON_ARRAY(1, 17, 21), JSON_ARRAY('温柔系选择'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(11, 'gptImage2', 1, 90, 90, 91, 90, '中性皮', '短圆手', '偏短甲床', JSON_ARRAY(18, 20, 7), JSON_ARRAY('甜美用户偏爱'), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(17, 'gptImage2', 1, 89, 90, 90, 89, '橄榄皮', '方圆手', '中等甲床', JSON_ARRAY(2, 8, 15), JSON_ARRAY('秋冬氛围感好'), DATE_SUB(NOW(), INTERVAL 3 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('通勤高容错'), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('显手更精致'), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('重要场合适配'), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(24, 'gptImage2', 1, 88, 90, 89, 89, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(6, 21, 9), JSON_ARRAY('高级感强'), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(2, 'gptImage2', 1, 90, 91, 90, 90, '暖黄皮', '方圆手', '中等甲床', JSON_ARRAY(17, 19, 15), JSON_ARRAY('暖黄皮更容易转化'), DATE_SUB(NOW(), INTERVAL 2 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('适合新客首次试戴'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('显白表现稳定'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('精致感到位'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('高客单优势明显'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(24, 'gptImage2', 1, 88, 90, 89, 89, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(6, 21, 9), JSON_ARRAY('更适合定向推荐'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(15, 'gptImage2', 1, 91, 92, 91, 91, '暖黄皮', '短圆手', '中等甲床', JSON_ARRAY(1, 17, 21), JSON_ARRAY('温柔日常感强'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(20, 'gptImage2', 1, 92, 91, 93, 92, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(7, 11, 18), JSON_ARRAY('节日感选择'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(11, 'gptImage2', 1, 90, 90, 91, 90, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(18, 20, 7), JSON_ARRAY('甜美款补充推荐'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(2, 'gptImage2', 1, 90, 91, 90, 90, '橄榄皮', '方圆手', '中等甲床', JSON_ARRAY(17, 19, 15), JSON_ARRAY('秋冬偏暖色调表现好'), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(6, 'gptImage2', 1, 89, 90, 92, 90, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(12, 25, 24), JSON_ARRAY('宴会用户偏好'), DATE_SUB(NOW(), INTERVAL 1 DAY));
+
+INSERT INTO try_on_events (style_id, provider, success, fit_score, brighten_score, style_match_score, total_score, skin_tone, hand_shape, nail_bed, recommended_style_ids, explanation, created_at)
+VALUES
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('当天最稳妥显白款'), NOW()),
+(1, 'gptImage2', 1, 94, 95, 94, 94, '暖黄皮', '短圆手', '偏短甲床', JSON_ARRAY(7, 15, 19), JSON_ARRAY('继续适合作为默认推荐'), NOW()),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('约会感强'), NOW()),
+(7, 'gptImage2', 1, 91, 92, 93, 92, '冷白皮', '细长手', '中等甲床', JSON_ARRAY(1, 20, 11), JSON_ARRAY('手部精致感好'), NOW()),
+(12, 'gptImage2', 1, 93, 94, 95, 94, '中性皮', '方圆手', '中等甲床', JSON_ARRAY(15, 22, 25), JSON_ARRAY('高质感婚礼款'), NOW()),
+(24, 'gptImage2', 1, 88, 90, 89, 89, '冷白皮', '细长手', '偏长甲床', JSON_ARRAY(6, 21, 9), JSON_ARRAY('适合窄人群定向'), NOW()),
+(15, 'gptImage2', 1, 91, 92, 91, 91, '暖黄皮', '短圆手', '中等甲床', JSON_ARRAY(1, 17, 21), JSON_ARRAY('温柔系新客友好'), NOW()),
+(2, 'gptImage2', 1, 90, 91, 90, 90, '暖黄皮', '方圆手', '中等甲床', JSON_ARRAY(17, 19, 15), JSON_ARRAY('今日显白表现稳定'), NOW()),
+(20, 'gptImage2', 1, 92, 91, 93, 92, '橄榄皮', '方圆手', '中等甲床', JSON_ARRAY(7, 11, 18), JSON_ARRAY('节日风格有记忆点'), NOW());
+
+-- 用户端真实行为联通到商家端：预约事件
+INSERT INTO bookings (shop_id, style_id, booking_time, nickname, status, created_at) VALUES
+('demo_shop_001', 20, '2026-06-11 15:00', '小柚', 'confirmed', DATE_SUB(NOW(), INTERVAL 4 DAY)),
+('demo_shop_001', 7, '2026-06-12 19:30', 'Lina', 'confirmed', DATE_SUB(NOW(), INTERVAL 3 DAY)),
+('demo_shop_001', 1, '2026-06-12 14:00', '阿梨', 'confirmed', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+('demo_shop_001', 2, '2026-06-12 18:00', 'Mika', 'confirmed', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+('demo_shop_001', 1, '2026-06-13 10:30', 'Yoyo', 'confirmed', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+('demo_shop_001', 7, '2026-06-13 20:00', '小鹿', 'confirmed', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+('demo_shop_001', 12, '2026-06-13 16:00', 'Lemon', 'confirmed', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+('demo_shop_001', 24, '2026-06-13 17:30', 'Nana', 'confirmed', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+('demo_shop_001', 6, '2026-06-13 19:00', 'Momo', 'confirmed', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+('demo_shop_001', 1, '2026-06-14 14:00', 'Kiki', 'confirmed', NOW()),
+('demo_shop_001', 1, '2026-06-14 18:00', '小桃', 'confirmed', NOW()),
+('demo_shop_001', 7, '2026-06-14 19:30', 'Eden', 'confirmed', NOW()),
+('demo_shop_001', 12, '2026-06-14 15:30', 'Ava', 'confirmed', NOW()),
+('demo_shop_001', 15, '2026-06-14 11:00', 'Rita', 'confirmed', NOW());
+
 INSERT INTO merchant_dashboard_summary (
   shop_name, today_try_on, today_booking, conversion_rate, top_style, total_views, try_on_volume, favorite_volume, booking_volume, try_on_to_booking_rate
 ) VALUES (
-  'Lisa 美甲工作室', 518, 67, '12.9%', '奶油裸杏纯色', 18760, 6930, 1840, 512, '7.4%'
+  'Lisa 美甲工作室', 9, 5, '55.6%', '奶油裸杏纯色', 113, 46, 29, 14, '30.4%'
 );
 
 INSERT INTO merchant_style_stats (id, name, views, try_ons, favorites, bookings, conversion, advice) VALUES
-(1, '奶油裸杏纯色', 4620, 1780, 560, 162, '9.1%', '高通勤适配，建议放在默认推荐位'),
-(7, '红丝带法式', 3560, 1320, 488, 144, '10.9%', '节日与约会场景转化高，建议做专题活动'),
-(12, '奶白珍珠新娘甲', 2940, 980, 410, 126, '12.8%', '高客单高转化，适合婚礼档期重点推广'),
-(24, '小香风黑尖法式', 3180, 1170, 276, 82, '7.0%', '点击高于收藏，适合精准推送给高级感人群'),
-(2, '抹茶奶咖跳色', 2860, 1090, 322, 74, '6.8%', '秋冬氛围感强，建议和毛衣穿搭内容联动'),
-(9, '冰透银豹纹长甲', 2480, 860, 295, 68, '7.9%', '甜酷风用户更爱，适合年轻用户分组投放');
+(1, '奶油裸杏纯色', 24, 10, 6, 4, '40.0%', '高通勤适配，建议继续放在默认推荐位'),
+(7, '红丝带法式', 18, 8, 5, 3, '37.5%', '约会和节日场景转化高，适合活动专题位'),
+(12, '奶白珍珠新娘甲', 14, 6, 4, 2, '33.3%', '高客单婚礼款，建议在重要场景专题里强化曝光'),
+(24, '小香风黑尖法式', 12, 5, 3, 1, '20.0%', '被选中多但预约偏低，更适合冷白皮定向推荐'),
+(2, '抹茶奶咖跳色', 10, 5, 2, 1, '20.0%', '秋冬氛围感强，适合和穿搭内容做联动'),
+(15, '奶杏金箔温柔款', 9, 4, 2, 1, '25.0%', '温柔显白，适合新客承接'),
+(20, '蔷薇红爱心法式', 8, 3, 2, 1, '33.3%', '节日氛围强，适合节点营销'),
+(11, '豆沙蝴蝶结碎钻', 7, 2, 2, 0, '0.0%', '收藏意向不差，可优化预约承接'),
+(9, '冰透银豹纹长甲', 6, 1, 1, 0, '0.0%', '甜酷风更挑人群，建议缩小推荐范围'),
+(17, '摩卡奶茶渐层', 5, 1, 1, 0, '0.0%', '可作为秋冬搭配款补充展示');
 
 INSERT INTO merchant_trends (date_label, try_ons, sort_order) VALUES
-('10-01', 320, 1),
-('10-02', 380, 2),
-('10-03', 410, 3),
-('10-04', 390, 4),
-('10-05', 460, 5),
-('10-06', 520, 6),
-('10-07', 452, 7);
+('06-01', 4, 1),
+('06-02', 5, 2),
+('06-03', 6, 3),
+('06-04', 7, 4),
+('06-05', 5, 5),
+('06-06', 10, 6),
+('06-07', 9, 7);
 
 INSERT INTO merchant_funnel (label, value, sort_order) VALUES
-('浏览', 12580, 1),
-('试戴', 4520, 2),
-('收藏', 1280, 3),
-('预约', 320, 4);
+('选款', 113, 1),
+('试戴', 46, 2),
+('收藏', 29, 3),
+('预约', 14, 4);
 
 INSERT INTO merchant_skin_tones (tone_name, value, sort_order) VALUES
-('暖黄皮', 45, 1),
-('冷白皮', 25, 2),
-('中性皮', 20, 3),
-('橄榄皮', 10, 4);
+('暖黄皮', 21, 1),
+('冷白皮', 11, 2),
+('中性皮', 9, 3),
+('橄榄皮', 5, 4);
 
 -- 热门款式排行（综合评分 = views*0.2 + try_ons*0.3 + favorites*0.25 + bookings*0.25）
 INSERT INTO merchant_style_ranking (style_id, name, current_rank, previous_rank, trend, composite_score, views, try_ons, favorites, bookings, conversion_rate, sort_order) VALUES
@@ -161,8 +324,8 @@ INSERT INTO merchant_conversion_suggestions (category, title, suggestion, priori
 
 -- 周同比经营数据
 INSERT INTO merchant_weekly_comparison (metric_name, current_week_value, last_week_value, change_percentage, trend) VALUES
-('views',       18760, 16120, '+16.4%', 'up'),
-('try_ons',      6930,  5880, '+17.9%', 'up'),
-('favorites',    1840,  1750,  '+5.1%', 'up'),
-('bookings',      512,   480,  '+6.7%', 'up'),
-('revenue',     68480, 62200, '+10.1%', 'up');
+('views',        113,   96, '+17.7%', 'up'),
+('try_ons',       46,   38, '+21.1%', 'up'),
+('favorites',     29,   24, '+20.8%', 'up'),
+('bookings',      14,   11, '+27.3%', 'up'),
+('revenue',     4180, 3360, '+24.4%', 'up');
