@@ -8,7 +8,8 @@ const props = defineProps<{
 
 const width = 360;
 const height = 180;
-const padding = 20;
+const padding = 38;
+const paddingRight = 20;
 
 const values = computed(() => props.data.map((item) => item.tryOns));
 const maxValue = computed(() => Math.max(...values.value, 1));
@@ -16,7 +17,7 @@ const minValue = computed(() => Math.min(...values.value, 0));
 
 const points = computed(() =>
   props.data.map((item, index) => {
-    const x = padding + (index * (width - padding * 2)) / Math.max(props.data.length - 1, 1);
+    const x = padding + (index * (width - padding - paddingRight)) / Math.max(props.data.length - 1, 1);
     const normalized = (item.tryOns - minValue.value) / Math.max(maxValue.value - minValue.value, 1);
     const y = height - padding - normalized * (height - padding * 2);
     return {...item, x, y};
@@ -29,7 +30,7 @@ const areaPath = computed(() => {
   }
   const start = `M ${points.value[0].x} ${height - padding}`;
   const line = points.value.map((point, index) => `${index === 0 ? 'L' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const end = `L ${points.value.at(-1)?.x ?? width - padding} ${height - padding} Z`;
+  const end = `L ${points.value.at(-1)?.x ?? width - paddingRight} ${height - padding} Z`;
   return `${start} ${line} ${end}`;
 });
 
@@ -39,11 +40,25 @@ const linePath = computed(() => {
   }
   return points.value.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 });
+
+const yTicks = computed(() => {
+  const range = maxValue.value - minValue.value;
+  if (range === 0) return [{ label: `${maxValue.value}`, y: padding }];
+  const ticks: Array<{ label: string; y: number }> = [];
+  const tickCount = 4;
+  for (let i = 0; i <= tickCount; i++) {
+    const value = minValue.value + (range * i) / tickCount;
+    const normalized = (value - minValue.value) / range;
+    const y = height - padding - normalized * (height - padding * 2);
+    ticks.push({ label: `${Math.round(value)}`, y });
+  }
+  return ticks;
+});
 </script>
 
 <template>
   <div class="h-[200px] w-full">
-    <svg viewBox="0 0 360 180" class="w-full h-full overflow-visible">
+    <svg :viewBox="`0 0 ${width} ${height}`" class="w-full h-full overflow-visible">
       <defs>
         <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="5%" stop-color="#FFD100" stop-opacity="0.85" />
@@ -51,13 +66,43 @@ const linePath = computed(() => {
         </linearGradient>
       </defs>
 
-      <path :d="areaPath" fill="url(#trendFill)" />
-      <path :d="linePath" fill="none" stroke="#B89600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <g class="chart-grid">
+        <line v-for="tick in yTicks" :key="tick.label" :x1="padding" :y1="tick.y" :x2="width - paddingRight" :y2="tick.y" stroke="#E5E7EB" stroke-width="1" />
+        <text v-for="tick in yTicks" :key="'label-' + tick.label" :x="padding - 6" :y="tick.y + 4" text-anchor="end" font-size="10" fill="#9CA3AF">{{ tick.label }}</text>
+      </g>
 
-      <g v-for="point in points" :key="point.date">
-        <circle :cx="point.x" :cy="point.y" r="4" fill="#FFD100" stroke="#fff" stroke-width="2" />
-        <text :x="point.x" y="174" text-anchor="middle" font-size="11" fill="#9CA3AF">{{ point.date }}</text>
+      <path class="chart-area" :d="areaPath" fill="url(#trendFill)" />
+      <path class="chart-line" :d="linePath" fill="none" stroke="#B89600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+
+      <g v-for="point in points" :key="point.date" class="chart-point">
+        <circle class="chart-dot" :cx="point.x" :cy="point.y" r="4" fill="#FFD100" stroke="#fff" stroke-width="2" />
+        <text class="chart-date-label" :x="point.x" :y="height - 6" text-anchor="middle" font-size="11" fill="#9CA3AF">{{ point.date }}</text>
       </g>
     </svg>
   </div>
 </template>
+
+<style scoped>
+.chart-area,
+.chart-line {
+  transition: d 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-dot {
+  transition: cx 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+              cy 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-grid line {
+  transition: y1 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+              y2 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-grid text {
+  transition: y 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-date-label {
+  transition: x 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+</style>
