@@ -1,5 +1,10 @@
 USE nailpilot;
 
+DELETE FROM merchant_conversion_suggestions;
+DELETE FROM merchant_weekly_comparison;
+DELETE FROM merchant_booking_times;
+DELETE FROM merchant_user_preferences;
+DELETE FROM merchant_style_ranking;
 DELETE FROM merchant_skin_tones;
 DELETE FROM merchant_funnel;
 DELETE FROM merchant_trends;
@@ -85,3 +90,79 @@ INSERT INTO merchant_skin_tones (tone_name, value, sort_order) VALUES
 ('冷白皮', 25, 2),
 ('中性皮', 20, 3),
 ('橄榄皮', 10, 4);
+
+-- 热门款式排行（综合评分 = views*0.2 + try_ons*0.3 + favorites*0.25 + bookings*0.25）
+INSERT INTO merchant_style_ranking (style_id, name, current_rank, previous_rank, trend, composite_score, views, try_ons, favorites, bookings, conversion_rate, sort_order) VALUES
+(1,  '奶油裸杏纯色',      1,  2, 'up',     94.5, 4620, 1780, 560, 162, '9.1%',  1),
+(7,  '红丝带法式',        2,  1, 'down',   91.2, 3560, 1320, 488, 144, '10.9%', 2),
+(12, '奶白珍珠新娘甲',    3,  4, 'up',     88.7, 2940,  980, 410, 126, '12.8%', 3),
+(15, '奶杏金箔温柔款',    4,  6, 'up',     86.3, 2750, 1020, 380,  98, '9.6%',  4),
+(2,  '抹茶奶咖跳色',      5,  3, 'down',   84.1, 2860, 1090, 322,  74, '6.8%',  5),
+(24, '小香风黑尖法式',    6,  5, 'down',   82.8, 3180, 1170, 276,  82, '7.0%',  6),
+(20, '蔷薇红爱心法式',    7,  8, 'up',     80.5, 2680,  950, 355,  89, '9.4%',  7),
+(11, '豆沙蝴蝶结碎钻',    8,  7, 'down',   79.3, 2540,  880, 340,  82, '9.3%',  8),
+(9,  '冰透银豹纹长甲',    9,  9, 'stable', 77.6, 2480,  860, 295,  68, '7.9%',  9),
+(17, '摩卡奶茶渐层',      10, 12, 'up',    75.4, 2380,  820, 298,  72, '8.8%',  10),
+(21, '香槟裸透猫眼',      11, 10, 'down',  73.9, 2320,  780, 275,  65, '8.3%',  11),
+(6,  '香槟钻饰宫廷长甲',  12, 11, 'down',  72.1, 2250,  740, 290,  62, '8.4%',  12),
+(3,  '牛奶奶牛纹',        13, 14, 'up',    69.8, 2180,  720, 262,  55, '7.6%',  13),
+(18, '裸粉珍珠蝴蝶结',    14, 13, 'down',  68.5, 2120,  690, 260,  52, '7.5%',  14),
+(5,  '黑金花卉透感长甲',  15, 15, 'stable',67.2, 2080,  660, 248,  50, '7.6%',  15);
+
+-- 用户偏好统计：手型分布
+INSERT INTO merchant_user_preferences (category, label, value, percentage, sort_order) VALUES
+('hand_shape', '短圆手', 38, '38%', 1),
+('hand_shape', '细长手', 27, '27%', 2),
+('hand_shape', '方圆手', 22, '22%', 3),
+('hand_shape', '宽大手', 13, '13%', 4);
+
+-- 用户偏好统计：热门标签偏好（按试戴量加权）
+INSERT INTO merchant_user_preferences (category, label, value, percentage, sort_order) VALUES
+('tag', '裸色/通勤',   680, '18%', 1),
+('tag', '法式',        560, '15%', 2),
+('tag', '渐变',        480, '13%', 3),
+('tag', '珍珠/精致',  450, '12%', 4),
+('tag', '猫眼/镜面',  380, '10%', 5),
+('tag', '蝴蝶结/甜美',350,  '9%', 6),
+('tag', '豹纹/个性',  280,  '7%', 7),
+('tag', '跳色',        240,  '6%', 8);
+
+-- 用户偏好统计：价格带偏好
+INSERT INTO merchant_user_preferences (category, label, value, percentage, sort_order) VALUES
+('price_range', '99-149元',  42, '42%', 1),
+('price_range', '149-199元', 30, '30%', 2),
+('price_range', '199-269元', 18, '18%', 3),
+('price_range', '69-99元',   10, '10%', 4);
+
+-- 用户偏好统计：甲床类型分布
+INSERT INTO merchant_user_preferences (category, label, value, percentage, sort_order) VALUES
+('nail_bed', '偏短甲床', 40, '40%', 1),
+('nail_bed', '中等甲床', 35, '35%', 2),
+('nail_bed', '偏长甲床', 25, '25%', 3);
+
+-- 预约时段分布
+INSERT INTO merchant_booking_times (time_period, booking_count, percentage, insight, sort_order) VALUES
+('下午 14:00-18:00', 156, '42%', '下午茶时段为预约高峰，可集中安排技师排班', 1),
+('上午 10:00-12:00', 112, '30%', '上午预约集中在周末，工作日可推早鸟优惠', 2),
+('晚上 18:00-21:00', 102, '28%', '晚间时段以通勤族为主，适合推短时快速款', 3);
+
+-- 转化优化建议
+INSERT INTO merchant_conversion_suggestions (category, title, suggestion, priority, expected_impact, related_style_id, sort_order) VALUES
+('product',    '首页主推「奶油裸杏纯色」',          '该款浏览量高且转化稳定（9.1%），建议放首页首屏推荐位，预计日均曝光可增加 40%',                     'high',   '预计提升转化 15%',   1,  1),
+('product',    '打造「短甲显白」专属品类',          '短圆手用户占比 38%，可将奶油裸杏、牛奶奶牛纹、低饱和雾白小花归入「短甲友好」集合页，降低选择成本', 'high',   '预计提升转化 12%',   NULL, 2),
+('pricing',    '推出 99 元低门槛体验套餐',          '42% 用户偏好 99-149 元价格带，建议选 1-2 款通勤款做 99 元新客体验，以低价引流拉动预约',               'high',   '预计新增 30 单/周',  NULL, 3),
+('targeting',  '暖黄皮用户精准推荐豆沙系',          '暖黄皮用户占比 45%，豆沙蝴蝶结碎钻在该人群的试戴转化率高达 10.5%，可做肤色定向推荐',                'high',   '预计提升转化 20%',   11,  4),
+('marketing',  '周末上午推早鸟价',                  '上午预约集中在周末，可推出周末上午 9 折早鸟优惠，拉升工作日午间预约量',                               'medium', '预计提升预约 10%',   NULL, 5),
+('product',    '婚礼季主推「奶白珍珠新娘甲」',      '该款转化率 12.8% 为全场最高，客单价 189-259 元，适合在婚礼旺季（5-6月、9-11月）重点投放',              'high',   '预计提升客单价 20%', 12,  6),
+('targeting',  '减少黑色款的泛曝光',                '小香风黑尖法式点击量高但预约转化仅 7.0%，建议从首页移除，改为推荐给冷白皮细长手用户分组',              'medium', '预计减少流失 8%',    24,  7),
+('marketing',  '小红书种草「红丝带法式」',          '红丝带法式约会属性强，在小红书投放「约会美甲」关键词，配合试戴前后对比图',                             'medium', '预计提升曝光 25%',   7,   8),
+('pricing',    '阶梯定价引导升单',                  '当前 99-149 元带占比最高，可在试戴完成页推荐「加 30 元升级钻饰版」，引导用户向高价位转化',              'medium', '预计提升客单价 15%',  NULL, 9),
+('targeting',  '回归用户定向推送新品',              '近 30 天未访问的老用户，推送上新款式 + 专属折扣券，通过短信/小程序通知触达',                            'low',    '预计召回 8%',        NULL, 10);
+
+-- 周同比经营数据
+INSERT INTO merchant_weekly_comparison (metric_name, current_week_value, last_week_value, change_percentage, trend) VALUES
+('views',       18760, 16120, '+16.4%', 'up'),
+('try_ons',      6930,  5880, '+17.9%', 'up'),
+('favorites',    1840,  1750,  '+5.1%', 'up'),
+('bookings',      512,   480,  '+6.7%', 'up'),
+('revenue',     68480, 62200, '+10.1%', 'up');

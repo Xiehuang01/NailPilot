@@ -54,6 +54,58 @@ export type SkinTonePoint = {
   name: string;
 };
 
+export type StyleRankingItem = {
+  styleId: number;
+  name: string;
+  currentRank: number;
+  previousRank: number;
+  trend: 'up' | 'down' | 'stable' | 'new';
+  compositeScore: number;
+  views: number;
+  tryOns: number;
+  favorites: number;
+  bookings: number;
+  conversionRate: string;
+};
+
+export type UserPreferenceEntry = {
+  label: string;
+  value: number;
+  percentage: string;
+};
+
+export type UserPreferencesGrouped = {
+  handShapes: UserPreferenceEntry[];
+  tags: UserPreferenceEntry[];
+  priceRanges: UserPreferenceEntry[];
+  nailBeds: UserPreferenceEntry[];
+};
+
+export type BookingTimeItem = {
+  timePeriod: string;
+  bookingCount: number;
+  percentage: string;
+  insight: string;
+};
+
+export type ConversionSuggestion = {
+  id: number;
+  category: string;
+  title: string;
+  suggestion: string;
+  priority: string;
+  expectedImpact: string;
+  relatedStyleId: number | null;
+};
+
+export type WeeklyComparisonEntry = {
+  metricName: string;
+  currentWeekValue: number;
+  lastWeekValue: number;
+  changePercentage: string;
+  trend: string;
+};
+
 export type StyleStat = {
   id: number;
   name: string;
@@ -80,6 +132,8 @@ export type MerchantDashboard = {
   trendData: TrendPoint[];
   funnelData: FunnelPoint[];
   skinToneData: SkinTonePoint[];
+  bookingTimeDistribution: BookingTimeItem[];
+  weeklyComparison: WeeklyComparisonEntry[];
 };
 
 export type AgentReport = {
@@ -256,49 +310,85 @@ export const trackStyleSelection = async ({
 };
 
 export const getMerchantDashboard = async (): Promise<MerchantDashboard> => {
-  return Promise.resolve({
-    shopName: 'Lisa 美甲工作室',
-    todayTryOn: 342,
-    todayBooking: 45,
-    conversionRate: '13.1%',
-    topStyle: '奶茶裸粉微闪',
-    totalViews: 12580,
-    tryOnVolume: 4520,
-    favoriteVolume: 1280,
-    bookingVolume: 320,
-    tryOnToBookingRate: '7.1%',
-    styleStats: [
-      { id: 1, name: '奶茶裸粉微闪', views: 3200, tryOns: 1500, favorites: 450, bookings: 120, conversion: '8.0%', advice: '低曝光高转化，建议上首页' },
-      { id: 4, name: '黑色猫眼', views: 4100, tryOns: 1200, favorites: 150, bookings: 30, conversion: '2.5%', advice: '高点击低预约，建议减少泛曝光' },
-      { id: 2, name: '豆沙渐变', views: 2800, tryOns: 900, favorites: 380, bookings: 95, conversion: '10.5%', advice: '暖黄皮用户转化高，建议做人群定向推荐' }
-    ],
-    trendData: [
-      { date: '10-01', tryOns: 320 },
-      { date: '10-02', tryOns: 380 },
-      { date: '10-03', tryOns: 410 },
-      { date: '10-04', tryOns: 390 },
-      { date: '10-05', tryOns: 460 },
-      { date: '10-06', tryOns: 520 },
-      { date: '10-07', tryOns: 452 }
-    ],
-    funnelData: [
-      { value: 12580, name: '浏览' },
-      { value: 4520, name: '试戴' },
-      { value: 1280, name: '收藏' },
-      { value: 320, name: '预约' }
-    ],
-    skinToneData: [
-      { value: 45, name: '暖黄皮' },
-      { value: 25, name: '冷白皮' },
-      { value: 20, name: '中性皮' },
-      { value: 10, name: '橄榄皮' }
-    ]
-  });
+  try {
+    return await requestJson<MerchantDashboard>('/merchant/dashboard');
+  } catch (error) {
+    console.warn('Falling back to local dashboard data:', error);
+    return {
+      shopName: 'Lisa 美甲工作室',
+      todayTryOn: 342,
+      todayBooking: 45,
+      conversionRate: '13.1%',
+      topStyle: '奶茶裸粉微闪',
+      totalViews: 12580,
+      tryOnVolume: 4520,
+      favoriteVolume: 1280,
+      bookingVolume: 320,
+      tryOnToBookingRate: '7.1%',
+      styleStats: [
+        { id: 1, name: '奶茶裸粉微闪', views: 3200, tryOns: 1500, favorites: 450, bookings: 120, conversion: '8.0%', advice: '低曝光高转化，建议上首页' },
+        { id: 4, name: '黑色猫眼', views: 4100, tryOns: 1200, favorites: 150, bookings: 30, conversion: '2.5%', advice: '高点击低预约，建议减少泛曝光' },
+        { id: 2, name: '豆沙渐变', views: 2800, tryOns: 900, favorites: 380, bookings: 95, conversion: '10.5%', advice: '暖黄皮用户转化高，建议做人群定向推荐' }
+      ],
+      trendData: [
+        { date: '10-01', tryOns: 320 },
+        { date: '10-02', tryOns: 380 },
+        { date: '10-03', tryOns: 410 },
+        { date: '10-04', tryOns: 390 },
+        { date: '10-05', tryOns: 460 },
+        { date: '10-06', tryOns: 520 },
+        { date: '10-07', tryOns: 452 }
+      ],
+      funnelData: [
+        { value: 12580, name: '浏览' },
+        { value: 4520, name: '试戴' },
+        { value: 1280, name: '收藏' },
+        { value: 320, name: '预约' }
+      ],
+      skinToneData: [
+        { value: 45, name: '暖黄皮' },
+        { value: 25, name: '冷白皮' },
+        { value: 20, name: '中性皮' },
+        { value: 10, name: '橄榄皮' }
+      ],
+      bookingTimeDistribution: [
+        { timePeriod: '下午 14:00-18:00', bookingCount: 156, percentage: '42%', insight: '下午茶时段为预约高峰' },
+        { timePeriod: '上午 10:00-12:00', bookingCount: 112, percentage: '30%', insight: '周末上午集中' },
+        { timePeriod: '晚上 18:00-21:00', bookingCount: 102, percentage: '28%', insight: '通勤族晚间为主' }
+      ],
+      weeklyComparison: [
+        { metricName: 'views', currentWeekValue: 18760, lastWeekValue: 16120, changePercentage: '+16.4%', trend: 'up' },
+        { metricName: 'try_ons', currentWeekValue: 6930, lastWeekValue: 5880, changePercentage: '+17.9%', trend: 'up' },
+        { metricName: 'favorites', currentWeekValue: 1840, lastWeekValue: 1750, changePercentage: '+5.1%', trend: 'up' },
+        { metricName: 'bookings', currentWeekValue: 512, lastWeekValue: 480, changePercentage: '+6.7%', trend: 'up' },
+        { metricName: 'revenue', currentWeekValue: 68480, lastWeekValue: 62200, changePercentage: '+10.1%', trend: 'up' }
+      ]
+    };
+  }
+};
+
+export const getMerchantRanking = async (): Promise<StyleRankingItem[]> => {
+  return requestJson<StyleRankingItem[]>('/merchant/ranking');
+};
+
+export const getMerchantUserPreferences = async (): Promise<UserPreferencesGrouped> => {
+  return requestJson<UserPreferencesGrouped>('/merchant/user-preferences');
+};
+
+export const getMerchantSuggestions = async (): Promise<ConversionSuggestion[]> => {
+  return requestJson<ConversionSuggestion[]>('/merchant/suggestions');
 };
 
 export const generateAgentReport = async (type: 'trend' | 'strategy' | 'marketing'): Promise<AgentReport> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
+  try {
+    return await requestJson<AgentReport>('/merchant/reports', {
+      method: 'POST',
+      body: JSON.stringify({ type }),
+    });
+  } catch (error) {
+    console.warn('Falling back to local report generation:', error);
+    return new Promise((resolve) => {
+      setTimeout(() => {
       if (type === 'trend') {
         resolve({
           title: '本周趋势日报',
@@ -316,7 +406,8 @@ export const generateAgentReport = async (type: 'trend' | 'strategy' | 'marketin
         });
       }
     }, 1500);
-  });
+    });
+  }
 };
 
 export const chatWithConsumerAgent = async ({
