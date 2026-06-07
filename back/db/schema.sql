@@ -84,3 +84,62 @@ CREATE TABLE IF NOT EXISTS merchant_skin_tones (
   value INT NOT NULL,
   sort_order INT NOT NULL
 );
+
+-- 热门款式排行（含排名变化、综合评分）
+CREATE TABLE IF NOT EXISTS merchant_style_ranking (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  style_id INT NOT NULL,
+  name VARCHAR(128) NOT NULL,
+  current_rank INT NOT NULL,
+  previous_rank INT NOT NULL,
+  trend VARCHAR(8) NOT NULL COMMENT 'up/down/stable/new',
+  composite_score DECIMAL(5,1) NOT NULL COMMENT '综合评分(百分制)',
+  views INT NOT NULL,
+  try_ons INT NOT NULL,
+  favorites INT NOT NULL,
+  bookings INT NOT NULL,
+  conversion_rate VARCHAR(16) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0
+);
+
+-- 用户偏好统计（手型、标签、价位、甲床多维度）
+CREATE TABLE IF NOT EXISTS merchant_user_preferences (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  category VARCHAR(32) NOT NULL COMMENT 'hand_shape/tag/price_range/nail_bed',
+  label VARCHAR(64) NOT NULL,
+  value INT NOT NULL,
+  percentage VARCHAR(8) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0
+);
+
+-- 预约时段分布
+CREATE TABLE IF NOT EXISTS merchant_booking_times (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  time_period VARCHAR(16) NOT NULL COMMENT '上午/下午/晚上',
+  booking_count INT NOT NULL,
+  percentage VARCHAR(8) NOT NULL,
+  insight VARCHAR(128) NOT NULL,
+  sort_order INT NOT NULL DEFAULT 0
+);
+
+-- 转化优化建议
+CREATE TABLE IF NOT EXISTS merchant_conversion_suggestions (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  category VARCHAR(32) NOT NULL COMMENT 'product/pricing/marketing/targeting',
+  title VARCHAR(128) NOT NULL,
+  suggestion TEXT NOT NULL,
+  priority VARCHAR(8) NOT NULL COMMENT 'high/medium/low',
+  expected_impact VARCHAR(64) NOT NULL,
+  related_style_id INT DEFAULT NULL,
+  sort_order INT NOT NULL DEFAULT 0
+);
+
+-- 周同比经营数据
+CREATE TABLE IF NOT EXISTS merchant_weekly_comparison (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  metric_name VARCHAR(32) NOT NULL COMMENT 'views/try_ons/favorites/bookings/revenue',
+  current_week_value INT NOT NULL,
+  last_week_value INT NOT NULL,
+  change_percentage VARCHAR(16) NOT NULL,
+  trend VARCHAR(8) NOT NULL COMMENT 'up/down/stable'
+);

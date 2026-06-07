@@ -66,16 +66,43 @@ const yTicks = computed(() => {
         </linearGradient>
       </defs>
 
-      <line v-for="tick in yTicks" :key="tick.label" :x1="padding" :y1="tick.y" :x2="width - paddingRight" :y2="tick.y" stroke="#E5E7EB" stroke-width="1" />
-      <text v-for="tick in yTicks" :key="'label-' + tick.label" :x="padding - 6" :y="tick.y + 4" text-anchor="end" font-size="10" fill="#9CA3AF">{{ tick.label }}</text>
+      <g class="chart-grid">
+        <line v-for="tick in yTicks" :key="tick.label" :x1="padding" :y1="tick.y" :x2="width - paddingRight" :y2="tick.y" stroke="#E5E7EB" stroke-width="1" />
+        <text v-for="tick in yTicks" :key="'label-' + tick.label" :x="padding - 6" :y="tick.y + 4" text-anchor="end" font-size="10" fill="#9CA3AF">{{ tick.label }}</text>
+      </g>
 
-      <path :d="areaPath" fill="url(#trendFill)" />
-      <path :d="linePath" fill="none" stroke="#B89600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+      <path class="chart-area" :d="areaPath" fill="url(#trendFill)" />
+      <path class="chart-line" :d="linePath" fill="none" stroke="#B89600" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
 
-      <g v-for="point in points" :key="point.date">
-        <circle :cx="point.x" :cy="point.y" r="4" fill="#FFD100" stroke="#fff" stroke-width="2" />
-        <text :x="point.x" :y="height - 6" text-anchor="middle" font-size="11" fill="#9CA3AF">{{ point.date }}</text>
+      <g v-for="point in points" :key="point.date" class="chart-point">
+        <circle class="chart-dot" :cx="point.x" :cy="point.y" r="4" fill="#FFD100" stroke="#fff" stroke-width="2" />
+        <text class="chart-date-label" :x="point.x" :y="height - 6" text-anchor="middle" font-size="11" fill="#9CA3AF">{{ point.date }}</text>
       </g>
     </svg>
   </div>
 </template>
+
+<style scoped>
+.chart-area,
+.chart-line {
+  transition: d 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-dot {
+  transition: cx 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+              cy 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-grid line {
+  transition: y1 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+              y2 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-grid text {
+  transition: y 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.chart-date-label {
+  transition: x 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+</style>

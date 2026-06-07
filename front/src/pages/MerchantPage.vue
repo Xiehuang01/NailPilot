@@ -67,12 +67,6 @@ onMounted(async () => {
   }
 });
 
-const selectedStyleName = computed(() => {
-  if (!dashboardData.value || !selectedStyleId.value) return '';
-  const style = dashboardData.value.styleStats.find(s => s.id === selectedStyleId.value);
-  return style?.name ?? '';
-});
-
 const selectedTrendData = computed(() => {
   if (!dashboardData.value) return [];
   const base = dashboardData.value.trendData;
@@ -121,21 +115,33 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
 
   <div v-else class="flex flex-col h-full gap-6">
     <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-6 rounded-2xl shadow-sm border border-gray-100 gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-gray-900 mb-1">{{ dashboardData.shopName }} · 数据中心</h1>
-        <p class="text-sm border text-gray-500 bg-gray-50 px-2.5 py-1 rounded-md inline-block font-mono">
-          今日试戴 {{ dashboardData.todayTryOn }} 次 · 今日预约 {{ dashboardData.todayBooking }} 单
-        </p>
-      </div>
-      <div class="flex items-center gap-4 bg-[#FFFDF7] border border-[#FFD100]/30 px-5 py-3 rounded-xl">
+      <div class="flex items-center gap-4">
+        <div class="w-1.5 h-12 rounded-full bg-gradient-to-b from-[#FFD100] to-[#B89600]" />
         <div>
-          <div class="text-xs text-gray-500">试戴转化率</div>
-          <div class="text-xl font-black text-[#B89600]">{{ dashboardData.conversionRate }}</div>
+          <h1 class="text-2xl font-black text-gray-900 tracking-tight">{{ dashboardData.shopName }}</h1>
+          <p class="text-xs text-gray-400 mt-0.5 tracking-wide">
+            今日试戴 <span class="font-semibold text-gray-600">{{ dashboardData.todayTryOn }}</span> 次 · 预约 <span class="font-semibold text-gray-600">{{ dashboardData.todayBooking }}</span> 单
+          </p>
         </div>
-        <div class="w-px h-8 bg-[#FFD100]/30" />
-        <div>
-          <div class="text-xs text-gray-500">本周爆款</div>
-          <div class="text-sm font-bold text-gray-900">{{ dashboardData.topStyle }}</div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#FFFDF7] border border-[#FFD100]/20">
+          <TrendingUp class="w-3.5 h-3.5 text-[#B89600]" />
+          <div>
+            <span class="text-xs text-gray-400">转化率 </span>
+            <span class="text-sm font-bold text-[#B89600]">{{ dashboardData.conversionRate }}</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-[#FFFDF7] border border-[#FFD100]/20">
+          <Sparkles class="w-3.5 h-3.5 text-[#B89600]" />
+          <div>
+            <span class="text-xs text-gray-400">爆款 </span>
+            <span class="text-sm font-bold text-gray-900">{{ dashboardData.topStyle }}</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-50 border border-green-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+          <span class="text-xs font-medium text-green-700">营业中</span>
         </div>
       </div>
     </div>
@@ -215,7 +221,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <p class="text-xs text-gray-400 mt-0.5">实时监控各款式核心运营数据</p>
                 </div>
               </div>
-              <div class="overflow-x-auto pb-4">
+              <div class="overflow-x-auto pb-4 max-h-[320px] overflow-y-auto">
                 <table class="w-full text-sm text-left">
                   <thead class="text-xs text-gray-500 uppercase bg-gray-50">
                     <tr>
@@ -230,7 +236,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                     <tr
                       v-for="style in dashboardData.styleStats"
                       :key="style.id"
-                      class="border-b border-gray-50 last:border-0 transition-colors cursor-pointer"
+                      class="border-b border-gray-50 last:border-0 transition-colors duration-500 cursor-pointer"
                       :class="selectedStyleId === style.id ? 'bg-[#FFFDF7]' : 'hover:bg-gray-50/50'"
                       @click="selectedStyleId = style.id"
                     >
@@ -239,7 +245,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                       <td class="px-4 py-4 font-mono text-[#B89600] text-right font-medium">{{ style.tryOns }}</td>
                       <td class="px-4 py-4 font-mono text-gray-500 text-right">{{ style.conversion }}</td>
                       <td class="px-4 py-4">
-                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#FFFDF7] text-gray-600 text-xs border border-[#FFD100]/20">
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#FFFDF7] text-gray-600 text-xs border border-[#B89600]/40">
                           <Sparkles class="w-3 h-3 text-[#B89600] shrink-0" />
                           <span class="line-clamp-2 leading-relaxed">{{ style.advice }}</span>
                         </span>
@@ -256,7 +262,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <Target class="w-4 h-4 text-[#B89600]" />
                 </div>
                 <div>
-                  <h3 class="font-bold text-gray-900 text-base leading-none">{{ selectedStyleName || '各肤色用户偏好分布' }}</h3>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">各肤色用户偏好分布</h3>
                   <p class="text-xs text-gray-400 mt-0.5">各肤色用户在不同款式中的偏好占比</p>
                 </div>
               </div>
@@ -275,7 +281,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
                   <TrendingUp class="w-4 h-4 text-[#B89600]" />
                 </div>
                 <div>
-                  <h3 class="font-bold text-gray-900 text-base leading-none">{{ selectedStyleName || '最近7天试戴趋势' }}</h3>
+                  <h3 class="font-bold text-gray-900 text-base leading-none">最近7天试戴趋势</h3>
                   <p class="text-xs text-gray-400 mt-0.5">近7日试戴数据走势</p>
                 </div>
               </div>
@@ -285,8 +291,8 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
         </div>
       </el-scrollbar>
 
-      <div class="bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col h-full overflow-hidden relative">
-        <div class="p-5 border-b border-gray-100 flex items-center gap-3 bg-gradient-to-b from-gray-50 to-white">
+      <div class="bg-white rounded-3xl border border-gray-200 shadow-sm flex flex-col overflow-hidden relative self-stretch max-h-[calc(100vh-8rem+200px)]">
+        <div class="p-5 border-b border-gray-100 flex items-center gap-3 bg-gradient-to-b from-gray-50 to-white shrink-0">
           <div class="w-10 h-10 rounded-xl bg-gray-900 text-white flex items-center justify-center flex-shrink-0 relative overflow-hidden">
             <Sparkles class="w-5 h-5 relative z-10" />
             <div class="absolute inset-0 bg-gradient-to-br from-indigo-500/20 to-purple-500/20" />
@@ -297,7 +303,7 @@ const handleGenerate = async (type: 'trend' | 'strategy' | 'marketing') => {
           </div>
         </div>
 
-        <el-scrollbar class="flex-1">
+        <el-scrollbar class="flex-1 min-h-0">
           <div class="p-4 bg-gray-50 min-h-full space-y-4">
             <TransitionGroup name="chat-rise" tag="div" class="space-y-4">
               <div v-for="report in agentReports" :key="`${report.title}-${report.content}`" class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
